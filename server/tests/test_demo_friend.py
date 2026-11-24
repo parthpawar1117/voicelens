@@ -63,3 +63,23 @@ def test_parses_your_replies_and_finds_your_chat():
 
 def test_no_updates_keeps_the_offset():
     assert parse_replies([], offset=9) == ([], None, 9)
+
+
+def test_browser_webm_recording_becomes_a_telegram_voice_file():
+    import subprocess
+    import imageio_ffmpeg
+    from devtools.demo_friend import to_ogg_opus
+
+    ff = imageio_ffmpeg.get_ffmpeg_exe()
+    webm = subprocess.run([ff, "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=300:duration=1",
+                           "-c:a", "libopus", "-f", "webm", "-"], capture_output=True, check=True).stdout
+    ogg = to_ogg_opus(webm)
+    assert ogg[:4] == b"OggS"
+    probe = subprocess.run([ff, "-hide_banner", "-f", "ogg", "-i", "-"], input=ogg, capture_output=True).stderr.decode()
+    assert "opus" in probe
+
+
+def test_empty_browser_recording_is_rejected():
+    from devtools.demo_friend import to_ogg_opus
+    with pytest.raises(ValueError):
+        to_ogg_opus(b"")
