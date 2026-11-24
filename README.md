@@ -6,7 +6,7 @@
 
 **Heads Up: Even Realities Hackathon** · Track 01 Messaging & News · Best Telegram integration
 
-![tests](https://img.shields.io/badge/tests-163_passing-3cfa44?style=flat-square)
+![tests](https://img.shields.io/badge/tests-207_passing-3cfa44?style=flat-square)
 ![latency](https://img.shields.io/badge/voice_note_→_text-0.2_s_on_GPU-3cfa44?style=flat-square)
 ![sdk](https://img.shields.io/badge/Even_Hub_SDK-0.0.16-555?style=flat-square)
 ![built with](https://img.shields.io/badge/TDD-every_feature_test--first-555?style=flat-square)
@@ -46,6 +46,8 @@ Transcribed on your GPU in **about 0.2 s**. Hindi and Hinglish arrive as **Engli
 
 And you can reply without a keyboard or a phone: **hold, speak, release.** If they sent a voice note, they get a voice note back in **your real voice**. If they typed, they get text.
 
+**Can't speak right now?** In a meeting or a class, **tap** instead: pick a **quick reply you recorded once**, and they still hear **your own voice**, without you saying a word.
+
 ---
 
 ## ⏱️ For judges: the 60-second version
@@ -53,8 +55,8 @@ And you can reply without a keyboard or a phone: **hold, speak, release.** If th
 | Judging criterion | Weight | What VoiceLens does | Evidence |
 |---|---|---|---|
 | **Usefulness on G2** | 30% | Fixes a gap G2 itself creates: no speaker means voice notes are unreadable. Every Telegram user gets voice notes, every day. | [The problem](#the-problem-in-one-picture) · [what's new](#-what-is-actually-new-here) |
-| **Read and write** | 25% | Read in one glance; reply with one hold. The reply **matches the sender's format**, and one swipe switches it. No typing, no AI-written words. | [The two flows](#-the-two-flows) |
-| **Technical execution** | 20% | 163 automated tests written before the code. GPU Whisper with CPU fallback, measured latency, warm-up and keep-alive tuned from real benchmarks. | [Measured, not claimed](#-measured-not-claimed) · [Tests](#-tests) |
+| **Read and write** | 25% | Read in one glance; reply with one hold, or **silently with one tap** (quick replies in your own recorded voice). The reply **matches the sender's format**, and one swipe switches it. No typing, no AI-written words. | [The two flows](#-the-two-flows) · [Silent quick replies](#-silent-quick-replies-in-your-own-voice) |
+| **Technical execution** | 20% | 207 automated tests written before the code, plus a 26-check end-to-end run repeated 11 times on the real setup. GPU Whisper with CPU fallback, measured latency, warm-up and keep-alive tuned from real benchmarks. | [Measured, not claimed](#-measured-not-claimed) · [Tests](#-tests) |
 | **UX for display and voice** | 15% | Plain-ASCII screens sized to 576×288, direction-based choices that survive G2's touch misfires, and a 5 s undo on every send. | [Built for G2's real limits](#-built-for-g2s-real-limits) |
 | **Business potential and safety** | 10% | Only chats you pick. Nothing sends without the countdown. Voice notes are never marked "listened". Secrets stay on your machine. | [Privacy and Telegram rules](#-privacy-and-telegram-rules) |
 
@@ -82,6 +84,25 @@ Sending voice note in 5... | dbl-tap    Sending text in 5... | dbl-tap: cancel
 ```
 
 **Swipe up is always text, swipe down is always voice.** It's not a toggle, so a double-read swipe can't flip it back. A tap does nothing here, double-tap cancels, and doing nothing sends after 5 seconds.
+
+---
+
+## 🤫 Silent quick replies, in your own voice
+
+In a meeting, a class or a library you can **read** a voice note on G2, but you **can't speak** to answer. Quick replies fix that:
+
+1. **Once:** record a few short replies on the dashboard (*"On my way"*, *"Can't talk now, I'll call you back"*). Leave the text empty and **Whisper writes it from your recording**.
+2. **On the glasses:** open a message and **tap**. Pick a reply with a swipe, then tap.
+3. **They get your voice:** if they sent a voice note, they hear **your real recorded voice**; if they typed, they get text. Same 5 s preview, same swipe to switch.
+
+| Quick reply list | Preview: your recorded voice | Text-only reply |
+|---|---|---|
+| <img src="docs/screenshots/05-quick-list.png" alt="Quick reply list on G2"> | <img src="docs/screenshots/06-quick-preview-voice.png" alt="Quick reply preview, voice"> | <img src="docs/screenshots/07-quick-preview-text-only.png" alt="Quick reply preview, text only"> |
+
+- **"Speak a reply" is the first row,** so you can also record **without long-press**, which real G2 sometimes reserves for its system menu.
+- **No speech, no AI at send time:** the clip and its text are ready, so tap → preview takes **0.4–0.7 s**.
+- **Text-only replies** are marked `(not recorded)` for voice, and swipe down can't pick it.
+- **A reply deleted on the dashboard while the list is open** shows a clear error and sends nothing ([screenshot](docs/screenshots/08-quick-error.png)).
 
 ---
 
@@ -133,6 +154,7 @@ Telegram on G2 isn't new: at least seven public projects (several in this hackat
 | **Read incoming voice notes** | ❌ G2 can't play them | ✅ **text in about 0.2 s, Hindi → English** |
 | Reply by speaking | ✅ always sent as text | ✅ |
 | **Reply as a real voice note in your voice** | ❌ | ✅ |
+| **Reply silently with your own recorded voice** | ❌ | ✅ quick replies |
 | **Reply format follows the sender, swipe to switch** | ❌ | ✅ |
 | Works without Telegram Premium | n/a | ✅ local GPU Whisper |
 
@@ -152,6 +174,8 @@ All numbers were measured on the development laptop (Intel i5-12450H, RTX 4050 6
 | GPU after 20 s idle, **with keep-alive** | **0.29 – 0.33 s** | A 0.1 s ping every 2 s while the app is open |
 | Your speech → preview on glasses | **0.61 s** | Real 4 s recording through `/reply/prepare` |
 | Send → appears on the friend's phone | **0.47 s** | Timed until the friend's chat received it |
+| Quick reply: tap → preview on glasses | **0.41 – 0.69 s** | 11 end-to-end runs on the real setup |
+| Quick reply: countdown end → friend has it | **0.19 – 0.26 s** | Same 11 runs (after the 5 s undo) |
 | Friend's message → VoiceLens inbox | **1.14 s** | Plus up to 0.7 s for the glasses to poll |
 | Hinglish → English (6 s note) | ✅ accurate | *"Bhai kal ki meeting 5 baje shift ho gayi hai, laptop aur charger dono leke aana"* → **"Brother, the meeting tomorrow has shifted to 5 o'clock. Bring the laptop and charger both and tell Raul."** |
 | Very short notes (~2 s) | ⚠️ can be wrong | *"5 baje"* once became *"5 am"*. Short notes need a "check" mark (roadmap) |
@@ -167,10 +191,11 @@ Each decision below comes from a G2 constraint or a real bug found while testing
 | G2 reality | Design decision |
 |---|---|
 | No speaker | Voice notes are **read**, never played |
-| One firmware font that drops unknown characters | Plain ASCII screens, no emoji. Hindi is **translated to English**, not transliterated |
+| One firmware font that drops unknown characters | Plain ASCII screens, no emoji (quick reply labels are cleaned too: *"In a meeting 🙏, call at 6"* → *"In a meeting, call at 6"*). Hindi is **translated to English**, not transliterated |
+| The font is **proportional** | No space-padded columns (they drift); rows use `name \| kind \| time` and `label (voice)` |
 | Touch gestures get misread (4 of 5 reviews complain) | **Direction = choice** (up = text, down = voice), not a toggle; **no single tap ever sends**; every send has a **5 s undo** |
 | Text longer than the screen is scrolled by the firmware, and the swipe never reaches the app | Every screen is capped at **48 × 10 characters**, and a test enforces it, so swipes always arrive |
-| The system claims "tap + hold" for its own menu | **Tap-to-record** works as well as hold-to-record |
+| The system claims "tap + hold" for its own menu | Tap opens quick replies, whose first row **"Speak a reply"** records without long-press |
 | Double-tap is the usual "exit" gesture | On the inbox it **jumps to the newest message** instead. One misplaced double-tap used to close the whole app during testing |
 | The simulator sends stray scroll events during a hold | Swipes are ignored while recording |
 | Apps can't show anything while closed | Roadmap: an alert bot, so G2's built-in Telegram notifications carry the text |
@@ -224,12 +249,12 @@ Every feature was built **test-first**: a failing test was written and committed
 
 | Suite | Tests | Covers |
 |---|---|---|
-| Server (pytest) | **110** | Telegram transcription and quota errors, hybrid fallback, GPU/CPU selection, warm-up, keep-alive, inbox, reply drafts and sending, the API, OGG Opus conversion, token safety, dashboard controls |
-| Glasses app (Vitest) | **53** | Gesture classification (including the "tap arrives with no event type" protobuf quirk), screen layout limits, navigation, the reply state machine, API client |
+| Server (pytest) | **139** | Telegram transcription and quota errors, hybrid fallback, GPU/CPU selection, warm-up, keep-alive, inbox, reply drafts and sending, quick replies (store, voice clips, API), the API, OGG Opus conversion, token safety, dashboard controls |
+| Glasses app (Vitest) | **68** | Gesture classification (including the "tap arrives with no event type" protobuf quirk), screen layout limits, no padded columns, navigation, the reply and quick-reply state machine, API client |
 
 ```powershell
-cd server; .venv\Scripts\python -m pytest -q        # 110 passed
-cd g2-app; npm test                                 # 53 passed
+cd server; .venv\Scripts\python -m pytest -q        # 139 passed
+cd g2-app; npm test                                 # 68 passed
 ```
 
 ---
@@ -246,6 +271,7 @@ cd g2-app; npm test                                 # 53 passed
 | `server/voicelens/local_whisper.py` | Whisper on GPU/CPU, warm-up, keep-alive, translation |
 | `server/voicelens/hybrid.py` | Telegram first, local Whisper when Premium is missing |
 | `server/voicelens/reply.py` | Format rule, draft → send, PCM → OGG Opus |
+| `server/voicelens/quick_replies.py` | Saved quick replies: text + your voice clip |
 | `server/run.py` | One process: Telegram listener + transcription + API |
 | `server/devtools/` | Live dashboard, speed listener, demo-friend bot |
 
