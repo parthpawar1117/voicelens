@@ -6,8 +6,8 @@
 // Gestures: swipe = move (harmless if a tap is misread), tap = open,
 // double tap = back/cancel (on the inbox: jump to newest; it never exits).
 // Replies: hold (or tap) on a message to record, release (or tap) to stop.
-// Nothing is sent before a 5 s countdown ends; during it, tap or swipe
-// switches voice/text (never sends) and double tap cancels.
+// Nothing is sent before a 5 s countdown ends; during it, swipe up = text,
+// swipe down = voice note (direction, not a toggle), double tap cancels.
 
 import type { Gesture } from './gestures'
 import { inboxScreen, messagePages, messageScreen, wrap, LINE_CHARS, type Item } from './screens'
@@ -106,13 +106,15 @@ export function reduce(s: Nav, input: Gesture | AppEvent, items: Item[]): Nav {
 
     case 'confirm':
       if (!s.reply) return backToMessage(s)
-      if (g === 'tap' || g === 'swipe_up' || g === 'swipe_down') {
-        // Switching is harmless (it never sends), so any simple gesture does it.
-        const format: ReplyFormat = s.reply.format === 'text' ? 'voice' : 'text'
+      if (g === 'swipe_up' || g === 'swipe_down') {
+        // Direction = choice (not a toggle), so a double-read or misread
+        // swipe can't flip it back. Choosing never sends.
+        const format: ReplyFormat = g === 'swipe_up' ? 'text' : 'voice'
+        if (format === s.reply.format) return s
         return { ...s, reply: { ...s.reply, format, countdown: COUNTDOWN_S } }
       }
       if (g === 'double_tap') return backToMessage(s)
-      return s
+      return s // a tap never sends early
 
     case 'error':
       return backToMessage(s)
@@ -138,10 +140,11 @@ export function render(s: Nav, items: Item[]): string {
     case 'confirm':
     case 'sending': {
       const r = s.reply!
-      const said = wrap(`"${r.text}"`, LINE_CHARS).slice(0, 5)
-      const other = r.format === 'text' ? 'voice' : 'text'
-      const status = s.screen === 'sending' ? `Sending as ${formatName(r.format)}...` : `Sending as ${formatName(r.format)} in ${r.countdown}...`
-      return [`Reply to ${to}`, 'You said:', ...said, status, `tap: switch to ${other} | dbl-tap: cancel`].join('\n')
+      const said = wrap(`"${r.text}"`, LINE_CHARS).slice(0, 3)
+      const mark = (f: ReplyFormat) => (r.format === f ? '>' : ' ')
+      const what = r.format === 'text' ? 'text' : 'voice note'
+      const status = s.screen === 'sending' ? `Sending ${what}...` : `Sending ${what} in ${r.countdown}... | dbl-tap: cancel`
+      return [`Reply to ${to}`, 'You said:', ...said, `${mark('text')} ^ TEXT          (swipe up)`, `${mark('voice')} v VOICE NOTE    (swipe down)`, status].join('\n')
     }
     case 'sent':
       return [`Sent to ${to}`, '', `as ${formatName(s.reply?.format ?? 'text')}`, '', 'Back to inbox...'].join('\n')

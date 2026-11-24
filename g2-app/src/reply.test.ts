@@ -119,7 +119,7 @@ describe('reply screens', () => {
     const text = render(conf, items)
     expect(text).toContain('You said:')
     expect(text).toContain('Ten minutes, almost home.')
-    expect(text).toContain('Sending as text in 5')
+    expect(text).toContain('Sending text in 5')
     expect(text).toContain('> ^ TEXT')
     expect(text).toContain('v VOICE NOTE')
     for (const s of [rec, { ...rec, screen: 'thinking' as const }, conf, { ...conf, screen: 'sent' as const }]) fits(render(s, items))
