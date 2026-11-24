@@ -29,3 +29,6 @@ server/tmp/
 
 # Simulator screenshots (glasses button)
 glasses_*.png
+
+# Personal chat ids picked for VoiceLens
+server/watched_chats.json
