@@ -18,7 +18,7 @@ import asyncio
 import subprocess
 import threading
 import time
-from typing import Callable
+from typing import Awaitable, Callable
 
 import imageio_ffmpeg
 import numpy as np
@@ -109,6 +109,7 @@ class LocalWhisper:
         self._model = None
         self._lock = threading.Lock()
         self.last_timings: dict[str, float] = {}
+        self._busy = 0
 
     def _get_model(self):
         with self._lock:
@@ -144,6 +145,34 @@ class LocalWhisper:
         silence = np.zeros(SAMPLE_RATE, dtype=np.float32)
         await asyncio.to_thread(self._run, silence)
 
+    def _ping(self) -> None:
+        # VAD off so the model really runs on the GPU instead of skipping silence.
+        tiny = np.zeros(SAMPLE_RATE // 10, dtype=np.float32)  # 0.1 s
+        segments, _ = self._get_model().transcribe(tiny, beam_size=1, vad_filter=False)
+        list(segments)
+
+    async def keep_alive(
+        self,
+        interval: float = 2.0,
+        *,
+        stop: asyncio.Event,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
+        """Run a tiny inference every `interval` seconds until `stop` is set.
+
+        The GPU clocks down when idle: after 20 s idle a note took 1.36 s of
+        model time versus 0.28 s back-to-back; pinging every 2 s gave 0.46 s.
+        Run it only while the app is in use. Skips a ping while a note runs.
+        """
+        while not stop.is_set():
+            if self._busy == 0:
+                await asyncio.to_thread(self._ping)
+            await sleep(interval)
+
     async def __call__(self, audio_path: str) -> str:
         # Whisper is CPU-bound; keep the event loop free for Telegram updates.
-        return await asyncio.to_thread(self._transcribe_sync, audio_path, time.perf_counter())
+        self._busy += 1
+        try:
+            return await asyncio.to_thread(self._transcribe_sync, audio_path, time.perf_counter())
+        finally:
+            self._busy -= 1
