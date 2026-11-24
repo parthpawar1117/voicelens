@@ -45,18 +45,43 @@ def validate_action(action: str) -> str:
     return action
 
 
-def steps_to_open(index: int, total: int, screen: str | None) -> list[str]:
+def steps_to_open(index: int, total: int, screen: str | None, current: int | None = None) -> list[str]:
     """Simulator inputs that open inbox row `index` from wherever the glasses are.
 
-    Back out first: never on the inbox (there double tap means "exit"), once
-    from a message, twice from a reply screen (reply -> message -> inbox; the
-    first one also cancels any pending draft). Then swipe up `total` times to
-    reach the top, down to the row, and tap.
+    Back out first: not on the inbox, once from a message, twice from a reply
+    screen (reply -> message -> inbox; the first also cancels a pending draft).
+    Backing out keeps the same message selected, so if its row `current` is
+    known, move only the difference; otherwise go to the top and down.
     """
     if not 0 <= index < total:
         raise ValueError(f"row {index} does not exist (inbox has {total})")
     backs = 0 if screen in (None, "inbox") else 1 if screen == "message" else 2
-    return ["double_click"] * backs + ["up"] * total + ["down"] * index + ["click"]
+    if current is not None and 0 <= current < total:
+        delta = index - current
+        moves = ["down"] * delta if delta > 0 else ["up"] * -delta
+    else:
+        moves = ["up"] * total + ["down"] * index
+    return ["double_click"] * backs + moves + ["click"]
+
+
+def simulator_command() -> list[str]:
+    exe = "npx.cmd" if sys.platform == "win32" else "npx"
+    return [exe, "evenhub-simulator", "--automation-port", "9898", "http://localhost:5173"]
+
+
+def restart_simulator() -> bool:
+    """Close the simulator window and open a fresh one (reloads the glasses app)."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/IM", "evenhub-simulator.exe", "/F"], capture_output=True)
+    else:
+        subprocess.run(["pkill", "-f", "evenhub-simulator"], capture_output=True)
+    time.sleep(0.8)
+    subprocess.Popen(simulator_command(), cwd=APP, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(30):  # wait until its automation API answers
+        if _http(f"{SIM}/api/ping", timeout=1) is not None:
+            return True
+        time.sleep(0.5)
+    return False
 
 
 def _http(url: str, data: dict | None = None, timeout: float = 2.0) -> bytes | None:
@@ -88,8 +113,10 @@ def glasses_status() -> dict:
 
 def open_row(index: int) -> list[str]:
     status = glasses_status()
-    screen = (status["ui"] or {}).get("screen")
-    steps = steps_to_open(index, len(status["inbox"]), screen)
+    ui = status["ui"] or {}
+    ids = [m["id"] for m in status["inbox"]]
+    current = ids.index(ui["selected_id"]) if ui.get("selected_id") in ids else None
+    steps = steps_to_open(index, len(ids), ui.get("screen"), current)
     for action in steps:
         send_gesture(action)
         time.sleep(0.25 if action == "double_click" else 0.12)  # let each gesture land in order
@@ -262,6 +289,14 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
 .pad button.hit small{color:#0b0f0b}
 .hold{display:block;width:100%;margin-top:8px;background:#262a26;color:#e6e6e6;border:1px solid #3a3f3a;border-radius:8px;padding:14px 6px;font:600 15px system-ui;cursor:pointer;user-select:none;touch-action:none}
 .hold small{display:block;font-weight:400;color:#9a9a9a;font-size:11px;margin-top:2px}
+.replybar{margin-top:10px;border:1px solid #3cfa44;border-radius:10px;padding:12px;background:rgba(60,250,68,.05)}
+.rbtitle{font:600 14px system-ui;color:#3cfa44}.rbtext{margin:6px 0 10px;font-size:15px;color:#e6e6e6;white-space:pre-wrap}
+.rbchoices{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
+.rbchoices button{background:#262a26;color:#e6e6e6;border:1px solid #3a3f3a;border-radius:8px;padding:12px 10px;font:600 14px system-ui;cursor:pointer}
+.rbchoices button.cur{background:#3cfa44;color:#0b0f0b;border-color:#3cfa44}
+.rbchoices button:hover{border-color:#3cfa44}.rbchoices .cancel:hover{border-color:#ff5a4f;color:#ff5a4f}
+.mini{background:none;border:1px solid #3a3f3a;color:#9a9a9a;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
+.mini:hover{border-color:#3cfa44;color:#3cfa44}
 .hold:hover{border-color:#3cfa44}.hold.on{background:#ff5a4f;border-color:#ff5a4f;color:#fff}.hold.on small{color:#fff}
 .glmeta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#9a9a9a}
 #gllog{font:12px ui-monospace,Consolas,monospace;color:#9a9a9a}
@@ -285,7 +320,17 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
    <button data-a="double_click">◀ Double-tap<small>Esc · double-click</small></button>
   </div>
   <button id="holdbtn" class="hold">🎤 Hold to talk<small>hold this button, or hold Space · speak · release</small></button>
+  <div id="replybar" class="replybar" hidden>
+   <div id="rbtitle" class="rbtitle"></div>
+   <div id="rbtext" class="rbtext"></div>
+   <div id="rbchoices" class="rbchoices">
+    <button data-fmt="text">💬 Send as text</button>
+    <button data-fmt="voice">🎤 Send as voice</button>
+    <button id="rbcancel" class="cancel">✕ Cancel</button>
+   </div>
+  </div>
   <div class="glmeta"><span id="glui">screen: –</span><span id="gllog">no gestures yet</span></div>
+  <div class="glmeta"><span>Screen blank or stuck?</span><button id="restartbtn" class="mini">↻ Restart glasses app</button></div>
  </div>
  <div class="glcard"><b style="font-size:13px;color:#9a9a9a">FULL INBOX · newest first · <span id="incount">0</span></b><div id="inlist"></div></div>
 </div>
@@ -395,8 +440,30 @@ async function glTick(){
  $('inlist').innerHTML=!s.inbox.length?'<p class="file">No messages yet. Send a text or voice note to Saved Messages.</p>':
   s.inbox.map((m,i)=>`<div class="inrow${m.id===ui.selected_id?' sel':''}"><div><b>${esc(m.chat_name)}</b><span class="k">${m.kind==='voice'?'voice '+Math.round(m.duration||0)+'s'+(m.source?' · '+m.source:''):'text'}</span><span class="file" style="margin-left:6px">${esc(m.received_at)}</span><p>${esc(m.text)}</p></div><button data-i="${i}">Open on glasses</button></div>`).join('');
  document.querySelectorAll('#inlist button').forEach(b=>b.addEventListener('click',()=>openRow(+b.dataset.i)));
+ renderReply(ui);
 }
-glTick(); setInterval(glTick,1500); setInterval(()=>{ if(glStatus&&glStatus.simulator) refreshShot() },700);
+// Reply bar: plain-language choices while a reply is being made.
+function renderReply(ui){
+ const bar=$('replybar'), scr=ui&&ui.screen, choices=$('rbchoices');
+ const show=['recording','thinking','confirm','sending','sent','error'].includes(scr);
+ bar.hidden=!show; if(!show) return;
+ const t={recording:'● Recording… release the button (or Space) to finish',thinking:'Preparing your preview…',confirm:`Sending as ${ui.reply_format} in ${ui.countdown} s — choose or wait`,sending:'Sending…',sent:'✓ Sent',error:'Reply not sent'}[scr];
+ $('rbtitle').textContent=t;
+ $('rbtext').textContent=ui.reply_text?`You said: “${ui.reply_text}”`:'';
+ choices.style.display=scr==='confirm'?'grid':'none';
+ choices.querySelectorAll('[data-fmt]').forEach(b=>b.classList.toggle('cur',b.dataset.fmt===ui.reply_format));
+}
+$('rbchoices').querySelectorAll('[data-fmt]').forEach(b=>b.addEventListener('click',()=>{
+ const ui=glStatus&&glStatus.ui; if(!ui||ui.screen!=='confirm') return;
+ if(b.dataset.fmt!==ui.reply_format) gesture('click'); // a tap switches format; it never sends
+}));
+$('rbcancel').addEventListener('click',()=>gesture('double_click'));
+$('restartbtn').addEventListener('click',async()=>{
+ const b=$('restartbtn'); b.disabled=true; b.textContent='Restarting…'; note('restart app');
+ try{ await fetch('/api/restart',{method:'POST',body:'{}'}) }catch(e){}
+ b.disabled=false; b.textContent='↻ Restart glasses app'; refreshShot(); glTick();
+});
+glTick(); setInterval(glTick,800); setInterval(()=>{ if(glStatus&&glStatus.simulator) refreshShot() },700);
 </script></body></html>"""
 
 
@@ -429,6 +496,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/gesture":
                 ok = send_gesture(body.get("action", ""))
                 self._send(json.dumps({"ok": ok}).encode(), "application/json")
+            elif self.path == "/api/restart":
+                self._send(json.dumps({"ok": restart_simulator()}).encode(), "application/json")
             elif self.path == "/api/open":
                 steps = open_row(int(body.get("index", -1)))
                 self._send(json.dumps({"ok": True, "steps": steps}).encode(), "application/json")
