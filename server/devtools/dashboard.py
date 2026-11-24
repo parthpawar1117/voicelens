@@ -151,16 +151,37 @@ def glasses_status() -> dict:
     }
 
 
-def open_row(index: int) -> list[str]:
-    status = glasses_status()
-    ui = status["ui"] or {}
-    ids = [m["id"] for m in status["inbox"]]
-    current = ids.index(ui["selected_id"]) if ui.get("selected_id") in ids else None
-    steps = steps_to_open(index, len(ids), ui.get("screen"), current)
-    for action in steps:
-        send_gesture(action)
-        time.sleep(0.25 if action == "double_click" else 0.12)  # let each gesture land in order
-    return steps
+def open_message(target_id: int, *, status, send, sleep, tries: int = 3) -> bool:
+    """Open one message on the glasses, by id, and check it really opened.
+
+    The glasses poll the inbox every 0.7 s, so a message that just arrived may
+    not be in their list yet and "row N" can point at a different message.
+    After each attempt we read which message the glasses opened; if it's the
+    wrong one we wait for their next poll and correct from where they are.
+    """
+    for _ in range(tries):
+        st = status()
+        ids = [m["id"] for m in st["inbox"]]
+        if target_id not in ids:
+            return False
+        ui = st["ui"] or {}
+        current = ids.index(ui["selected_id"]) if ui.get("selected_id") in ids else None
+        for action in steps_to_open(ids.index(target_id), len(ids), ui.get("screen"), current):
+            send(action)
+            sleep(0.25 if action == "double_click" else 0.12)  # let each gesture land in order
+        sleep(0.4)  # let the glasses report their screen
+        ui = status()["ui"] or {}
+        if ui.get("screen") == "message" and ui.get("selected_id") == target_id:
+            return True
+        sleep(0.8)  # wait for the glasses' next inbox poll, then correct
+    return False
+
+
+def open_row(index: int) -> bool:
+    ids = [m["id"] for m in glasses_status()["inbox"]]
+    if not 0 <= index < len(ids):
+        raise ValueError(f"row {index} does not exist (inbox has {len(ids)})")
+    return open_message(ids[index], status=glasses_status, send=send_gesture, sleep=time.sleep)
 
 
 # ---------- parsers (tested) ----------
@@ -489,9 +510,11 @@ async function gesture(a){
  try{ await fetch('/api/gesture',{method:'POST',body:JSON.stringify({action:a})}) }catch(e){}
  setTimeout(refreshShot,120); setTimeout(refreshShot,450); setTimeout(glTick,450);
 }
-async function openRow(i){
+async function openRow(i,id){
  if(busy) return; busy=true; note('open row '+(i+1));
- try{ await fetch('/api/open',{method:'POST',body:JSON.stringify({index:i})}) }catch(e){}
+ let r={ok:true};
+ try{ r=await (await fetch('/api/open',{method:'POST',body:JSON.stringify(id?{id}:{index:i})})).json() }catch(e){}
+ if(!r.ok) note('could not open row '+(i+1));
  busy=false; refreshShot(); setTimeout(refreshShot,300); glTick();
 }
 document.querySelectorAll('.pad button').forEach(b=>b.addEventListener('click',()=>gesture(b.dataset.a)));
@@ -615,8 +638,8 @@ async function glTick(){
  $('glui').textContent=ui.screen?`screen: ${ui.screen}${sel?' · '+sel.chat_name+' ('+sel.kind+')':''}${ui.screen==='message'?' · page '+(ui.page+1):''}`:'screen: –';
  $('incount').textContent=s.inbox.length;
  $('inlist').innerHTML=!s.inbox.length?'<p class="file">No messages yet. Send a text or voice note to Saved Messages.</p>':
-  s.inbox.map((m,i)=>`<div class="inrow${m.id===ui.selected_id?' sel':''}"><div><b>${esc(m.chat_name)}</b><span class="k">${m.kind==='voice'?'voice '+Math.round(m.duration||0)+'s'+(m.source?' · '+m.source:''):'text'}</span><span class="file" style="margin-left:6px">${esc(m.received_at)}</span><p>${esc(m.text)}</p></div><button data-i="${i}">Open on glasses</button></div>`).join('');
- document.querySelectorAll('#inlist button').forEach(b=>b.addEventListener('click',()=>openRow(+b.dataset.i)));
+  s.inbox.map((m,i)=>`<div class="inrow${m.id===ui.selected_id?' sel':''}"><div><b>${esc(m.chat_name)}</b><span class="k">${m.kind==='voice'?'voice '+Math.round(m.duration||0)+'s'+(m.source?' · '+m.source:''):'text'}</span><span class="file" style="margin-left:6px">${esc(m.received_at)}</span><p>${esc(m.text)}</p></div><button data-i="${i}" data-id="${m.id}">Open on glasses</button></div>`).join('');
+ document.querySelectorAll('#inlist button').forEach(b=>b.addEventListener('click',()=>openRow(+b.dataset.i,+b.dataset.id)));
  renderReply(ui);
 }
 // Reply bar: plain-language choices while a reply is being made.
@@ -713,8 +736,11 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/restart":
                 self._send(json.dumps({"ok": restart_simulator()}).encode(), "application/json")
             elif self.path == "/api/open":
-                steps = open_row(int(body.get("index", -1)))
-                self._send(json.dumps({"ok": True, "steps": steps}).encode(), "application/json")
+                if "id" in body:  # preferred: a specific message, robust to a lagging list
+                    ok = open_message(int(body["id"]), status=glasses_status, send=send_gesture, sleep=time.sleep)
+                else:
+                    ok = open_row(int(body.get("index", -1)))
+                self._send(json.dumps({"ok": ok}).encode(), "application/json")
             else:
                 self.send_error(404)
         except (ValueError, json.JSONDecodeError) as err:
