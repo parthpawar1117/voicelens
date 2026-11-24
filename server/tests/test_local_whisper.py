@@ -83,3 +83,16 @@ async def test_translates_to_english_so_hindi_shows_in_latin_letters():
 def test_default_model_is_small_for_better_hinglish():
     from voicelens.local_whisper import DEFAULT_MODEL
     assert DEFAULT_MODEL == "small"
+
+
+async def test_warm_up_loads_model_and_runs_one_transcription_on_silence():
+    # The first real transcription was ~2.7x slower than later ones (VAD model
+    # and engine initialise lazily), so run one pass on silence at startup.
+    model = FakeModel([])
+    engine = LocalWhisper(model_factory=lambda: model, decoder=lambda p: p)
+    await engine.warm_up()
+    assert len(model.inputs) == 1
+    audio, kwargs = model.inputs[0]
+    assert isinstance(audio, np.ndarray) and len(audio) >= 16000
+    assert not audio.any()  # pure silence
+    assert kwargs.get("task") == "translate"
