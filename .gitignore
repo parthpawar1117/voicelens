@@ -26,3 +26,6 @@ Thumbs.db
 # Simulator screenshots and test audio
 *.png.tmp
 server/tmp/
+
+# Simulator screenshots (glasses button)
+glasses_*.png
