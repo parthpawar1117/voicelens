@@ -29,6 +29,7 @@ from voicelens.hybrid import transcribe_hybrid  # noqa: E402
 from voicelens.inbox import Inbox  # noqa: E402
 from voicelens.ingest import backfill, is_watched, load_watched, should_show, to_inbox_item  # noqa: E402
 from voicelens.local_whisper import LocalWhisper  # noqa: E402
+from voicelens.quick_replies import QuickReplyStore  # noqa: E402
 from voicelens.reply import ReplyService  # noqa: E402
 from devtools.demo_friend import bot_id_from_token  # noqa: E402
 from voicelens.transcribe import transcribe_voice_note  # noqa: E402
@@ -128,11 +129,12 @@ async def main() -> None:
                 await client.send_file(chat_id, str(ogg_path), voice_note=True, reply_to=reply_to)
                 print(f"> sent voice note to {chat_id}")
 
+        quick = QuickReplyStore(SERVER_DIR / "quick_replies")
         replies = ReplyService(inbox=inbox, stt=local.transcribe_pcm, telegram=TelegramSender(),
-                               watched=watched, tmp_dir=TMP)
+                               watched=watched, tmp_dir=TMP, quick=quick)
 
         server = uvicorn.Server(uvicorn.Config(
-            create_app(inbox, replies=replies), host="127.0.0.1", port=settings.port, log_level="warning",
+            create_app(inbox, replies=replies, quick=quick, stt=local.transcribe_pcm), host="127.0.0.1", port=settings.port, log_level="warning",
         ))
         print(f"Inbox API on http://127.0.0.1:{settings.port}/inbox")
         try:

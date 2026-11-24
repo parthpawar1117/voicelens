@@ -121,6 +121,17 @@ class ReplyService:
         self._drafts.pop(draft_id, None)
 
 
+def any_audio_to_pcm(audio: bytes) -> bytes:
+    """Any recording (browser WebM, OGG, WAV...) -> 16 kHz mono s16le PCM."""
+    if not audio:
+        raise ValueError("empty recording")
+    return subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-loglevel", "error", "-i", "-", "-vn",
+         "-f", "s16le", "-ar", str(SAMPLE_RATE), "-ac", "1", "-"],
+        input=audio, check=True, capture_output=True,
+    ).stdout
+
+
 def pcm_to_ogg_opus(pcm: bytes, path: Path) -> Path:
     """G2 mic audio (16 kHz mono s16le) -> OGG Opus voice-note file."""
     if not pcm:
