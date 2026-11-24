@@ -65,13 +65,28 @@ describe('preview and countdown', () => {
     expect(s.screen).toBe('sending')
   })
 
-  it.each(['tap', 'swipe_up', 'swipe_down'] as const)('%s switches text <-> voice and restarts the countdown', g => {
-    let s = reduce(thinking, { type: 'draft', draft }, items)
+  it('swipe up always chooses text, swipe down always chooses voice', () => {
+    let s = reduce(thinking, { type: 'draft', draft: { ...draft, format: 'voice' } }, items)
+    s = reduce(s, 'swipe_up', items)
+    expect(s.reply?.format).toBe('text')
+    s = reduce(s, 'swipe_up', items) // a double-read swipe can't flip it back
+    expect(s.reply?.format).toBe('text')
+    s = reduce(s, 'swipe_down', items)
+    expect(s.reply?.format).toBe('voice')
+    expect(reduce(s, 'swipe_down', items).reply?.format).toBe('voice')
+    expect(s.screen).toBe('confirm') // choosing never sends
+  })
+
+  it('changing the format restarts the countdown; choosing the same one does not', () => {
+    let s = reduce(thinking, { type: 'draft', draft }, items) // text
     s = reduce(s, { type: 'tick' }, items)
-    s = reduce(s, g, items)
-    expect(s.reply).toMatchObject({ format: 'voice', countdown: 5 })
-    expect(s.screen).toBe('confirm') // switching never sends
-    expect(reduce(s, g, items).reply?.format).toBe('text')
+    expect(reduce(s, 'swipe_up', items).reply?.countdown).toBe(4) // already text
+    expect(reduce(s, 'swipe_down', items).reply?.countdown).toBe(5) // changed to voice
+  })
+
+  it('a tap during the preview changes nothing and never sends early', () => {
+    const s = reduce(thinking, { type: 'draft', draft }, items)
+    expect(reduce(s, 'tap', items)).toEqual(s)
   })
 
   it('double tap cancels and returns to the message', () => {
@@ -105,7 +120,8 @@ describe('reply screens', () => {
     expect(text).toContain('You said:')
     expect(text).toContain('Ten minutes, almost home.')
     expect(text).toContain('Sending as text in 5')
-    expect(text).toContain('tap: switch to voice')
+    expect(text).toContain('> ^ TEXT')
+    expect(text).toContain('v VOICE NOTE')
     for (const s of [rec, { ...rec, screen: 'thinking' as const }, conf, { ...conf, screen: 'sent' as const }]) fits(render(s, items))
   })
 })
