@@ -15,7 +15,7 @@ import { mountUi, setStatus, setTranscript } from './ui'
 // effects when the screen changes: microphone, upload, countdown, send.
 // In the simulator the "G2 microphone" is your computer's microphone.
 
-const POLL_MS = 1500
+const POLL_MS = 700 // new messages show within about a second
 
 mountUi()
 const bridge = await waitForEvenAppBridge()

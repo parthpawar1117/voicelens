@@ -462,17 +462,17 @@ holdBtn.addEventListener('pointerdown',e=>{ e.preventDefault(); holdBtn.setPoint
 holdBtn.addEventListener('pointerup',holdEnd); holdBtn.addEventListener('pointercancel',holdEnd);
 window.addEventListener('blur',holdEnd);
 // ---- demo friend: type or record what the friend says; see your replies ----
-let frCount=-1, frPlaying=new Set();
+let frSeq=-1;
 async function frTick(){
  let f; try{ f=await (await fetch('/api/friend')).json() }catch(e){ return }
  const b=$('frbadge'); $('frname').textContent=f.name||'Demo friend';
  if(!f.enabled){ b.className='pill'; b.textContent='not set up'; $('frhelp').textContent='To use: create a bot with @BotFather, add TELEGRAM_DEMO_BOT_TOKEN to server/.env, restart the dashboard.'; return }
  b.className='pill '+(f.ready?'ok':'run'); b.textContent=f.ready?'connected':'open the bot in Telegram and press Start';
- if(f.conversation.length===frCount) return; frCount=f.conversation.length;
+ if(f.seq===frSeq) return; frSeq=f.seq;
  const box=$('frchat');
  box.innerHTML=!f.conversation.length?'<p class="file">No messages yet. Type below or hold the button to record.</p>':
   f.conversation.map(m=>{
-   const who=m.from==='friend'?(f.name||'Friend'):'You · replied from G2 glasses';
+   const who=m.from==='friend'?(f.name||'Friend'):(m.via_g2?'You · from G2 glasses 👓':'You · typed on phone 📱');
    const body=m.kind==='voice'?(m.file_id?`🎤 voice note${m.duration?' · '+m.duration+'s':''}<audio controls preload="none" src="/api/friend/audio?file_id=${encodeURIComponent(m.file_id)}"></audio>`:'🎤 voice note'):esc(m.text);
    return `<div class="bub ${m.from==='friend'?'friend':'you'}"><small>${esc(who)}</small>${body}</div>`}).join('');
  box.scrollTop=box.scrollHeight;
@@ -481,7 +481,7 @@ async function frSendText(){
  const i=$('frtext'), t=i.value.trim(); if(!t) return;
  i.value=''; note('friend: text');
  const r=await (await fetch('/api/friend/text',{method:'POST',body:JSON.stringify({text:t})})).json();
- if(!r.ok){ alertLine(r.error) } frCount=-1; frTick();
+ if(!r.ok){ alertLine(r.error) } frSeq=-1; frTick();
 }
 function alertLine(msg){ $('frhelp').textContent='⚠ '+msg }
 $('frtextbtn').addEventListener('click',frSendText);
@@ -502,7 +502,7 @@ async function frRecStart(){
    vb.firstChild.textContent='Sending…';
    const r=await (await fetch('/api/friend/voice',{method:'POST',body:blob})).json();
    vb.firstChild.textContent='🎤 Hold to record their voice note';
-   if(!r.ok) alertLine(r.error); frCount=-1; frTick();
+   if(!r.ok) alertLine(r.error); frSeq=-1; frTick();
   };
   rec.start(); vb.classList.add('on'); vb.firstChild.textContent='● Recording friend… release to send';
  }catch(e){ alertLine('Microphone blocked: allow it in the address bar, then try again.') }
@@ -510,7 +510,7 @@ async function frRecStart(){
 function frRecStop(){ if(rec&&rec.state==='recording'){ rec.stop(); vb.classList.remove('on') } }
 vb.addEventListener('pointerdown',e=>{ e.preventDefault(); vb.setPointerCapture(e.pointerId); frRecStart() });
 vb.addEventListener('pointerup',frRecStop); vb.addEventListener('pointercancel',frRecStop);
-frTick(); setInterval(frTick,1500);
+frTick(); setInterval(frTick,700);
 document.addEventListener('keydown',e=>{
  if(e.target.closest&&e.target.closest('input,textarea')) return;
  if(e.code==='Space'){ e.preventDefault(); if(!e.repeat) holdStart(); return }
@@ -556,7 +556,7 @@ async function restartGlasses(btn,label){
 }
 $('restartbtn').addEventListener('click',()=>restartGlasses($('restartbtn'),'↻ Restart glasses app'));
 $('glstart').addEventListener('click',()=>restartGlasses($('glstart'),'▶ Start glasses'));
-glTick(); setInterval(glTick,800); setInterval(()=>{ if(glStatus&&glStatus.simulator) refreshShot() },700);
+glTick(); setInterval(glTick,700); setInterval(()=>{ if(glStatus&&glStatus.simulator) refreshShot() },700);
 </script></body></html>"""
 
 
@@ -579,7 +579,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(glasses_status()).encode(), "application/json")
         elif self.path == "/api/friend":
             body = {"enabled": FRIEND is not None, "name": FRIEND_NAME,
-                    "ready": bool(FRIEND and FRIEND.chat_id), "conversation": FRIEND.conversation if FRIEND else []}
+                    "ready": bool(FRIEND and FRIEND.chat_id), "seq": FRIEND.seq if FRIEND else 0,
+                    "conversation": FRIEND.conversation if FRIEND else []}
             self._send(json.dumps(body).encode(), "application/json")
         elif self.path.startswith("/api/friend/audio?file_id=") and FRIEND:
             try:
@@ -631,6 +632,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):
         pass
+
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            pass  # the browser closed the connection (e.g. a refreshed screenshot); harmless
 
 
 # ---------- demo friend (optional bot that plays the person messaging you) ----------
