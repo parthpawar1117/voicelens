@@ -34,8 +34,7 @@ describe('inboxScreen', () => {
     expect(s).toContain('> Rahul | voice 0:06 | 21:05')
     expect(s).toContain('  Mom | text | 21:01')
     // No space-padded columns: the G2 font is proportional, so they never line up.
-    for (const line of s.split('
-')) expect(line.trimStart()).not.toMatch(/\S {2,}\S/)
+    for (const line of s.split('\n')) expect(line.trimStart()).not.toMatch(/\S {2,}\S/)
     expect(s).not.toMatch(/\p{Extended_Pictographic}/u)
     fits(s)
   })
