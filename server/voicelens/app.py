@@ -3,7 +3,17 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from typing import Literal
+
+from pydantic import BaseModel
+
 from voicelens.inbox import Inbox
+
+
+class UiState(BaseModel):
+    screen: Literal["inbox", "message"] | None = None
+    selected_id: int | None = None
+    page: int = 0
 
 # The G2 plugin runs in a WebView; its fetch() needs CORS headers.
 # Tightened to the real origin before packaging.
@@ -28,6 +38,19 @@ def create_app(inbox: Inbox) -> FastAPI:
     def list_inbox() -> dict:
         items = [x.to_dict() for x in app.state.inbox.items()]
         return {"count": len(items), "items": items}
+
+    # What the glasses are showing, reported by the G2 app after each redraw.
+    # Lets the dev dashboard follow the glasses and jump to a message safely.
+    app.state.ui = UiState()
+
+    @app.get("/ui-state")
+    def get_ui_state() -> UiState:
+        return app.state.ui
+
+    @app.post("/ui-state")
+    def set_ui_state(state: UiState) -> UiState:
+        app.state.ui = state
+        return state
 
     @app.get("/inbox/{item_id}")
     def get_item(item_id: int) -> dict:
