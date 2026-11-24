@@ -164,3 +164,14 @@ async def test_keep_alive_skips_a_ping_while_a_real_note_is_running():
 
     await engine.keep_alive(interval=2.0, stop=stop, sleep=fake_sleep)
     assert model.inputs == []
+
+
+async def test_transcribes_raw_g2_microphone_pcm_without_a_file():
+    model = FakeModel(["Ten minutes, almost home."])
+    engine = make(model)
+    pcm = (np.ones(16000) * 16384).astype("<i2").tobytes()  # 1 s at half volume
+    assert await engine.transcribe_pcm(pcm) == "Ten minutes, almost home."
+    audio, kwargs = model.inputs[0]
+    assert audio.dtype == np.float32 and len(audio) == 16000
+    assert abs(float(audio[0]) - 0.5) < 1e-3
+    assert kwargs.get("task") == "translate"  # Hindi speech replies go out in English
