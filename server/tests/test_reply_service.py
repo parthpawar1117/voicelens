@@ -104,3 +104,69 @@ async def test_unknown_message_or_empty_speech_is_rejected(tmp_path):
     svc2 = ReplyService(inbox=inbox_with(), stt=silent, telegram=FakeTelegram(), watched={555}, tmp_dir=tmp_path)
     with pytest.raises(ValueError):
         await svc2.prepare(item_id=10, pcm=PCM)
+
+
+# ---- quick replies: no speech, your saved text + voice clip ----
+
+from voicelens.quick_replies import QuickReplyStore
+
+
+def quick_service(kind, tmp_path):
+    tg = FakeTelegram()
+    store = QuickReplyStore(tmp_path / "quick")
+    svc = ReplyService(inbox=inbox_with(kind), stt=fake_stt, telegram=tg, watched={555},
+                       tmp_dir=tmp_path, quick=store)
+    return svc, tg, store
+
+
+async def test_quick_reply_to_a_voice_note_defaults_to_your_saved_voice(tmp_path):
+    svc, tg, store = quick_service("voice", tmp_path)
+    q = store.add("On my way", ogg=b"OggS-my-voice", duration=1.2)
+    draft = await svc.prepare_quick(item_id=10, quick_id=q.id)
+    assert (draft.text, draft.format, draft.voice_available) == ("On my way", "voice", True)
+    await svc.send(draft.id, fmt="voice")
+    assert tg.sent == [("voice", 555, ".ogg", 10)]
+    assert store.voice_path(q.id).exists()  # the saved clip is reused, never deleted
+
+
+async def test_quick_reply_to_a_text_defaults_to_text(tmp_path):
+    svc, tg, store = quick_service("text", tmp_path)
+    q = store.add("On my way", ogg=b"OggS")
+    draft = await svc.prepare_quick(item_id=10, quick_id=q.id)
+    assert draft.format == "text"
+    await svc.send(draft.id, fmt="text")
+    assert tg.sent == [("text", 555, "On my way", 10)]
+
+
+async def test_text_only_quick_reply_always_goes_as_text(tmp_path):
+    svc, tg, store = quick_service("voice", tmp_path)
+    q = store.list()[0]  # a starter reply, no recording
+    draft = await svc.prepare_quick(item_id=10, quick_id=q.id)
+    assert (draft.format, draft.voice_available) == ("text", False)
+    await svc.send(draft.id, fmt="voice")  # asked for voice, but there is no clip
+    assert tg.sent == [("text", 555, q.label, 10)]
+
+
+async def test_quick_reply_never_needs_speech_recognition(tmp_path):
+    async def stt_must_not_run(_pcm):
+        raise AssertionError("quick replies are silent")
+    store = QuickReplyStore(tmp_path / "quick")
+    svc = ReplyService(inbox=inbox_with("text"), stt=stt_must_not_run, telegram=FakeTelegram(),
+                       watched={555}, tmp_dir=tmp_path, quick=store)
+    await svc.prepare_quick(item_id=10, quick_id=store.list()[0].id)
+
+
+async def test_quick_reply_respects_picked_chats_and_unknown_ids(tmp_path):
+    store = QuickReplyStore(tmp_path / "quick")
+    svc = ReplyService(inbox=inbox_with("text"), stt=fake_stt, telegram=FakeTelegram(),
+                       watched={999}, tmp_dir=tmp_path, quick=store)
+    with pytest.raises(NotAllowed):
+        await svc.prepare_quick(item_id=10, quick_id=store.list()[0].id)
+    svc2, _, _ = quick_service("text", tmp_path / "b")
+    with pytest.raises(DraftNotFound):
+        await svc2.prepare_quick(item_id=10, quick_id="q999")
+
+
+async def test_spoken_drafts_report_voice_available(tmp_path):
+    svc, _ = service("text", tmp_path=tmp_path)
+    assert (await svc.prepare(item_id=10, pcm=PCM)).voice_available is True
