@@ -59,12 +59,24 @@ class LocalWhisper:
                 self._model = self._factory()
             return self._model
 
-    def _transcribe_sync(self, audio_path: str) -> str:
-        audio = self._decode(audio_path)
+    def _run(self, audio) -> str:
         segments, _info = self._get_model().transcribe(
             audio, language=None, task="translate", beam_size=1, vad_filter=True,
         )
         return " ".join(s.text.strip() for s in segments).strip()
+
+    def _transcribe_sync(self, audio_path: str) -> str:
+        return self._run(self._decode(audio_path))
+
+    async def warm_up(self) -> None:
+        """Load the model and run one pass on 1 s of silence.
+
+        Measured on a real 4 s note: 8.7 s for the first transcription after
+        loading versus 3.2 s afterwards, because the VAD model and inference
+        engine initialise lazily. Paying that at startup keeps notes fast.
+        """
+        silence = np.zeros(SAMPLE_RATE, dtype=np.float32)
+        await asyncio.to_thread(self._run, silence)
 
     async def __call__(self, audio_path: str) -> str:
         # Whisper is CPU-bound; keep the event loop free for Telegram updates.

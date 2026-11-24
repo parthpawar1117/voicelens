@@ -53,8 +53,8 @@ async def main() -> None:
     hybrid_state: dict = {}
     save()
 
-    print("Loading Whisper model (kept warm for fair timings)...")
-    await asyncio.to_thread(local._get_model)
+    print("Loading Whisper model and warming it up (kept warm for fair timings)...")
+    await local.warm_up()
     status["model_ready"] = True
     save()
 
