@@ -119,12 +119,20 @@ async def main() -> None:
             status["processing"] = None
             save()
 
+        # Keep the GPU from clocking down between notes (1.2 s -> 0.3 s after idle).
+        stop_keep_alive = asyncio.Event()
+        keep_alive_task = None
+        if status.get("device") == "cuda":
+            keep_alive_task = asyncio.create_task(local.keep_alive(2.0, stop=stop_keep_alive))
+        status["keep_alive"] = keep_alive_task is not None
+
         status["listening"] = True
         save()
         print("Listening. Send voice notes to your Saved Messages. Ctrl+C to stop.")
         try:
             await client.run_until_disconnected()
         finally:
+            stop_keep_alive.set()
             status["listening"] = False
             save()
 
