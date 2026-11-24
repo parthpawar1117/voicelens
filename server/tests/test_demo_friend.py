@@ -56,8 +56,9 @@ def test_parses_your_replies_and_finds_your_chat():
     assert chat_id == 42
     assert next_offset == 4
     assert replies == [
-        {"id": 6, "kind": "text", "text": "10 minutes", "file_id": None, "duration": None, "date": 2},
-        {"id": 7, "kind": "voice", "text": None, "file_id": "F1", "duration": 2, "date": 3},
+        # A reply to the friend's message = sent from the glasses (VoiceLens replies that way).
+        {"id": 6, "kind": "text", "text": "10 minutes", "file_id": None, "duration": None, "date": 2, "via_g2": True},
+        {"id": 7, "kind": "voice", "text": None, "file_id": "F1", "duration": 2, "date": 3, "via_g2": False},
     ]
 
 
@@ -128,3 +129,12 @@ def test_env_update_replaces_only_the_token_line():
     after = set_env_value(before, "TELEGRAM_DEMO_BOT_TOKEN", "NEW")
     assert after == "TELEGRAM_API_ID=1\nTELEGRAM_DEMO_BOT_TOKEN=NEW\nSERVER_PORT=8787\n"
     assert set_env_value("A=1\n", "TELEGRAM_DEMO_BOT_TOKEN", "NEW") == "A=1\nTELEGRAM_DEMO_BOT_TOKEN=NEW\n"
+
+
+def test_conversation_change_counter_keeps_rising_after_the_log_is_full():
+    # The panel froze: it redrew only when the length changed, but the log is capped at 30.
+    friend = DemoFriend(FakeBotApi(), chat_id=42)
+    for i in range(35):
+        friend.send_text(f"m{i}")
+    assert len(friend.conversation) == 30
+    assert friend.seq == 35
