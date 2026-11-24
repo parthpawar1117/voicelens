@@ -104,3 +104,29 @@ async def test_records_decode_and_model_time_of_the_last_call():
     timings = engine.last_timings
     assert set(timings) == {"decode_s", "model_s", "thread_wait_s"}
     assert all(v >= 0 for v in timings.values())
+
+
+def test_uses_gpu_with_float16_when_cuda_is_available():
+    from voicelens.local_whisper import pick_device
+    assert pick_device(cuda_devices=1) == ("cuda", "float16")
+
+
+def test_uses_cpu_with_int8_without_a_gpu():
+    from voicelens.local_whisper import pick_device
+    assert pick_device(cuda_devices=0) == ("cpu", "int8")
+
+
+def test_falls_back_to_cpu_when_gpu_model_fails_to_load():
+    from voicelens.local_whisper import load_model
+
+    calls = []
+
+    def fake_whisper(size, device, compute_type):
+        calls.append(device)
+        if device == "cuda":
+            raise RuntimeError("Library cublas64_12.dll is not found")
+        return f"model-{device}"
+
+    model, device = load_model("small", cuda_devices=1, whisper_cls=fake_whisper)
+    assert (model, device) == ("model-cpu", "cpu")
+    assert calls == ["cuda", "cpu"]
