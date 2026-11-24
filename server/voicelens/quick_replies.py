@@ -12,6 +12,7 @@ Stored on your machine in server/quick_replies/ (gitignored: personal voice):
 from __future__ import annotations
 
 import json
+import re
 import threading
 import unicodedata
 from dataclasses import asdict, dataclass
@@ -33,7 +34,8 @@ def to_g2_text(text: str) -> str:
     """Plain ASCII: the G2 firmware font drops characters it doesn't have."""
     text = unicodedata.normalize("NFKD", text.translate(_ASCII_PUNCT))
     text = text.encode("ascii", "ignore").decode()
-    return " ".join(text.split())
+    text = " ".join(text.split())
+    return re.sub(r" +([,.!?;:])", r"\1", text)  # "meeting 🙏, call" -> "meeting, call"
 
 
 @dataclass(frozen=True)
