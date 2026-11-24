@@ -31,3 +31,21 @@ def test_jump_from_a_reply_screen_backs_out_twice(screen):
 def test_jump_rejects_a_row_that_does_not_exist():
     with pytest.raises(ValueError):
         steps_to_open(index=5, total=5, screen="inbox")
+
+
+def test_jump_moves_only_the_needed_steps_when_the_selection_is_known():
+    # Selected row 1, target row 4: three swipes down, not a trip to the top.
+    assert steps_to_open(index=4, total=10, screen="inbox", current=1) == ["down"] * 3 + ["click"]
+    assert steps_to_open(index=0, total=10, screen="inbox", current=2) == ["up"] * 2 + ["click"]
+
+
+def test_jump_from_a_message_keeps_the_selection_and_moves_from_it():
+    # Backing out of a message keeps that message selected in the inbox.
+    assert steps_to_open(index=2, total=10, screen="message", current=2) == ["double_click", "click"]
+
+
+def test_restart_command_relaunches_the_simulator_on_the_dev_server():
+    from devtools.dashboard import simulator_command
+    cmd = simulator_command()
+    assert cmd[-1] == "http://localhost:5173"
+    assert "--automation-port" in cmd and "9898" in cmd
