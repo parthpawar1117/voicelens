@@ -231,7 +231,7 @@ async function tick(){
  if(!L){ lb.className='pill'; lb.textContent='listener not running';
   $('live').innerHTML='<p class="file">Start it: server\\\\.venv\\\\Scripts\\\\python server\\\\devtools\\\\live_listener.py</p>'; return }
  lb.className='pill '+(L.processing?'run':L.listening&&L.model_ready?'ok':L.listening?'run':'bad');
- lb.textContent=L.processing?`transcribing ${L.processing}…`:!L.listening?'listener stopped':!L.model_ready?'loading model…':'listening · send a voice note';
+ lb.textContent=L.processing?`transcribing ${L.processing}…`:!L.listening?'listener stopped':!L.model_ready?'loading model…':`listening on ${L.device==='cuda'?'GPU':(L.device||'CPU').toUpperCase()} · send a voice note`;
  const m=L.summary||{};
  $('l_count').textContent=m.count??0;
  $('l_avg').textContent=m.avg_transcribe_s!=null?m.avg_transcribe_s+' s':'–';

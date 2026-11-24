@@ -27,6 +27,7 @@ from telethon import TelegramClient, events  # noqa: E402
 from voicelens.config import SERVER_DIR, load_settings  # noqa: E402
 from voicelens.hybrid import transcribe_hybrid  # noqa: E402
 from voicelens.live_feed import add_entry, summarize  # noqa: E402
+from voicelens import local_whisper  # noqa: E402
 from voicelens.local_whisper import LocalWhisper  # noqa: E402
 from voicelens.transcribe import TranscriptionError, transcribe_voice_note  # noqa: E402
 
@@ -56,6 +57,8 @@ async def main() -> None:
     print("Loading Whisper model and warming it up (kept warm for fair timings)...")
     await local.warm_up()
     status["model_ready"] = True
+    status["device"] = local_whisper.loaded_device  # "cuda" (GPU) or "cpu"
+    print(f"Model ready on {status['device']}.")
     save()
 
     async with TelegramClient(str(settings.session_path), settings.api_id, settings.api_hash) as client:
