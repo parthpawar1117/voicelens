@@ -30,6 +30,69 @@ WATCH = [APP / "src", SERVER / "voicelens", SERVER / "tests", SERVER / "devtools
 PORT = 8800
 
 
+# ---------- glasses controls (tested) ----------
+# The dashboard drives the Even Hub simulator through its automation API and
+# reads the inbox and current screen from the VoiceLens server.
+
+SIM = "http://127.0.0.1:9898"         # evenhub-simulator --automation-port 9898
+VOICELENS = "http://127.0.0.1:8787"   # server/run.py
+ALLOWED_ACTIONS = ("up", "down", "click", "double_click", "long_press", "long_press_release")
+
+
+def validate_action(action: str) -> str:
+    if action not in ALLOWED_ACTIONS:
+        raise ValueError(f"not a G2 gesture: {action!r}")
+    return action
+
+
+def steps_to_open(index: int, total: int, on_message: bool) -> list[str]:
+    """Simulator inputs that open inbox row `index` from wherever the glasses are.
+
+    Double tap only when a message is open (on the inbox it means "exit").
+    Swiping up `total` times always reaches the top, then down to the row.
+    """
+    if not 0 <= index < total:
+        raise ValueError(f"row {index} does not exist (inbox has {total})")
+    return (["double_click"] if on_message else []) + ["up"] * total + ["down"] * index + ["click"]
+
+
+def _http(url: str, data: dict | None = None, timeout: float = 2.0) -> bytes | None:
+    import urllib.request
+
+    body = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"} if body else {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read()
+    except OSError:
+        return None
+
+
+def send_gesture(action: str) -> bool:
+    return _http(f"{SIM}/api/input", {"action": validate_action(action)}) is not None
+
+
+def glasses_status() -> dict:
+    inbox = _http(f"{VOICELENS}/inbox")
+    ui = _http(f"{VOICELENS}/ui-state")
+    return {
+        "simulator": _http(f"{SIM}/api/ping") is not None,
+        "server": inbox is not None,
+        "inbox": json.loads(inbox)["items"] if inbox else [],
+        "ui": json.loads(ui) if ui else None,
+    }
+
+
+def open_row(index: int) -> list[str]:
+    status = glasses_status()
+    on_message = bool(status["ui"] and status["ui"].get("screen") == "message")
+    steps = steps_to_open(index, len(status["inbox"]), on_message)
+    for action in steps:
+        send_gesture(action)
+        time.sleep(0.12)  # let the glasses app handle each gesture in order
+    return steps
+
+
 # ---------- parsers (tested) ----------
 
 def parse_junit(xml_text: str) -> list[dict]:
