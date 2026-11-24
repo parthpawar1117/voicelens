@@ -64,3 +64,10 @@ def test_unknown_id(tmp_path):
     store = QuickReplyStore(tmp_path)
     assert store.get("nope") is None
     store.delete("nope")  # no error
+
+
+def test_removing_an_emoji_leaves_no_stray_space_before_punctuation(tmp_path):
+    # Seen in the dashboard: "In a meeting 🙏, will call" became "In a meeting , will call".
+    store = QuickReplyStore(tmp_path)
+    assert store.add("In a meeting 🙏, will call you at 6").label == "In a meeting, will call you at 6"
+    assert store.add("Done 👍 !").label == "Done!"
