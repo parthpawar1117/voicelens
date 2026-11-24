@@ -32,3 +32,6 @@ glasses_*.png
 
 # Personal chat ids picked for VoiceLens
 server/watched_chats.json
+
+# Your recorded quick replies (personal voice clips)
+server/quick_replies/
