@@ -108,6 +108,14 @@ def recent_commits(n: int = 8) -> list[str]:
     return out.stdout.strip().splitlines()
 
 
+def live_feed() -> dict | None:
+    path = TMP / "live_feed.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def last_real_run() -> dict | None:
     path = TMP / "last_run.json"
     try:
@@ -178,6 +186,15 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
 .voice td{font-size:13px}.src{color:#3cfa44}
 </style></head><body><main>
 <div class="top"><h1>VoiceLens · live test dashboard</h1><span id="badge" class="pill run">starting…</span></div>
+<h2>Live transcription <span id="livebadge" class="pill">listener not running</span></h2>
+<div class="stats">
+ <div class="stat"><b id="l_count">–</b><span>notes transcribed</span></div>
+ <div class="stat"><b id="l_avg">–</b><span>avg transcription time</span></div>
+ <div class="stat"><b id="l_total">–</b><span>avg send → text ready</span></div>
+ <div class="stat"><b id="l_factor">–</b><span>avg speed factor (below 1× = faster than audio)</span></div>
+</div>
+<div id="live" style="margin-top:12px"></div>
+<h2>Tests</h2>
 <div class="stats">
  <div class="stat"><b id="total">–</b><span>tests</span></div>
  <div class="stat"><b id="passed" style="color:#3cfa44">–</b><span>passed</span></div>
@@ -210,6 +227,21 @@ async function tick(){
   `<p class="file">Ran at ${esc(v.ran_at)}</p><table class="voice"><tr><th>Note</th><th>Engine</th><th>Time</th><th>Text on glasses</th></tr>`+
   v.notes.map(n=>`<tr><td>${esc(n.duration)} s</td><td class="src">${esc(n.source||'—')}</td><td>${n.seconds??'–'} s</td><td>${esc(n.text||n.error)}</td></tr>`).join('')+'</table>';
  $('commits').textContent=(s.commits||[]).join('\\n');
+ const L=s.live, lb=$('livebadge');
+ if(!L){ lb.className='pill'; lb.textContent='listener not running';
+  $('live').innerHTML='<p class="file">Start it: server\\\\.venv\\\\Scripts\\\\python server\\\\devtools\\\\live_listener.py</p>'; return }
+ lb.className='pill '+(L.processing?'run':L.listening&&L.model_ready?'ok':L.listening?'run':'bad');
+ lb.textContent=L.processing?`transcribing ${L.processing}…`:!L.listening?'listener stopped':!L.model_ready?'loading model…':'listening · send a voice note';
+ const m=L.summary||{};
+ $('l_count').textContent=m.count??0;
+ $('l_avg').textContent=m.avg_transcribe_s!=null?m.avg_transcribe_s+' s':'–';
+ $('l_total').textContent=m.avg_total_s!=null?m.avg_total_s+' s':'–';
+ $('l_factor').textContent=m.avg_speed_factor!=null?m.avg_speed_factor+'×':'–';
+ $('live').innerHTML=!L.feed.length?'<p class="file">Waiting for your first voice note in Saved Messages…</p>':
+  '<table><tr><th>Received</th><th>Audio</th><th>Engine</th><th>Download</th><th>Transcribe</th><th>Send → ready</th><th>Speed</th><th>Text on glasses</th></tr>'+
+  L.feed.map(e=>e.error?`<tr><td>${esc(e.received)}</td><td>${esc(e.duration)} s</td><td colspan="6" class="msg">${esc(e.error)}</td></tr>`:
+   `<tr><td>${esc(e.received)}</td><td>${(+e.duration).toFixed(0)} s</td><td class="src">${esc(e.source)}</td><td>${e.download_s} s</td><td><b>${e.transcribe_s} s</b></td><td>${e.total_s} s</td><td>${e.speed_factor??'–'}×</td><td>${esc(e.text)}</td></tr>`).join('')+'</table>'+
+  `<p class="file">Fastest ${m.fastest_s??'–'} s · slowest ${m.slowest_s??'–'} s · ${m.errors||0} errors · updated ${esc(L.updated)}</p>`;
 }
 tick(); setInterval(tick,2000);
 </script></body></html>"""
@@ -221,6 +253,7 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 body = dict(STATE)
             body["voice"] = last_real_run()
+            body["live"] = live_feed()
             body["commits"] = recent_commits()
             self._send(json.dumps(body).encode(), "application/json")
         elif self.path in ("/", "/index.html"):
