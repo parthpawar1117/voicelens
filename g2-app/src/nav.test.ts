@@ -28,8 +28,9 @@ describe('inbox navigation', () => {
     expect(s).toEqual({ screen: 'message', selectedId: 2, page: 0 })
   })
 
-  it('double tap on the inbox asks to exit', () => {
-    expect(reduce(initialNav(items), 'double_tap', items).screen).toBe('exit')
+  it('double tap on the inbox jumps to the newest message and never exits the app', () => {
+    const s = reduce({ screen: 'inbox', selectedId: 1, page: 0 }, 'double_tap', items)
+    expect(s).toEqual({ screen: 'inbox', selectedId: 3, page: 0 })
   })
 
   it('selection follows the same message when a new one arrives', () => {

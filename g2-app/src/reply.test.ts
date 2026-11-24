@@ -49,31 +49,27 @@ describe('starting and stopping a recording', () => {
 describe('preview and countdown', () => {
   const thinking: Nav = { screen: 'thinking', selectedId: 10, page: 0 }
 
-  it('a ready draft shows the confirm screen with a 3 second countdown', () => {
+  it('a ready draft shows the confirm screen with a 5 second countdown', () => {
     const s = reduce(thinking, { type: 'draft', draft }, items)
     expect(s.screen).toBe('confirm')
-    expect(s.reply).toMatchObject({ countdown: 3, format: 'text', text: 'Ten minutes, almost home.' })
+    expect(s.reply).toMatchObject({ countdown: 5, format: 'text', text: 'Ten minutes, almost home.' })
   })
 
   it('each tick counts down; at zero it moves to sending', () => {
     let s = reduce(thinking, { type: 'draft', draft }, items)
     s = reduce(s, { type: 'tick' }, items)
     expect(s.reply?.countdown).toBe(2)
-    s = reduce(reduce(s, { type: 'tick' }, items), { type: 'tick' }, items)
+    for (let i = 0; i < 4; i++) s = reduce(s, { type: 'tick' }, items)
     expect(s.screen).toBe('sending')
   })
 
-  it('swipe up switches text <-> voice and restarts the countdown', () => {
+  it.each(['tap', 'swipe_up', 'swipe_down'] as const)('%s switches text <-> voice and restarts the countdown', g => {
     let s = reduce(thinking, { type: 'draft', draft }, items)
     s = reduce(s, { type: 'tick' }, items)
-    s = reduce(s, 'swipe_up', items)
-    expect(s.reply).toMatchObject({ format: 'voice', countdown: 3 })
-    expect(reduce(s, 'swipe_up', items).reply?.format).toBe('text')
-  })
-
-  it('a misread tap during the countdown does nothing (never sends early)', () => {
-    const s = reduce(thinking, { type: 'draft', draft }, items)
-    expect(reduce(s, 'tap', items)).toEqual(s)
+    s = reduce(s, g, items)
+    expect(s.reply).toMatchObject({ format: 'voice', countdown: 5 })
+    expect(s.screen).toBe('confirm') // switching never sends
+    expect(reduce(s, g, items).reply?.format).toBe('text')
   })
 
   it('double tap cancels and returns to the message', () => {
@@ -106,8 +102,8 @@ describe('reply screens', () => {
     const text = render(conf, items)
     expect(text).toContain('You said:')
     expect(text).toContain('Ten minutes, almost home.')
-    expect(text).toContain('Sending as text in 3')
-    expect(text).toContain('swipe up: send as voice')
+    expect(text).toContain('Sending as text in 5')
+    expect(text).toContain('tap: switch to voice')
     for (const s of [rec, { ...rec, screen: 'thinking' as const }, conf, { ...conf, screen: 'sent' as const }]) fits(render(s, items))
   })
 })
