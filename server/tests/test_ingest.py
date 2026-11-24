@@ -1,0 +1,64 @@
+"""Turning Telegram messages from watched chats into inbox items."""
+
+import json
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
+from voicelens.hybrid import HybridTranscript
+from voicelens.ingest import is_watched, load_watched, to_inbox_item
+
+WHEN = datetime(2026, 11, 25, 9, 30, tzinfo=timezone.utc)  # 15:00 IST
+
+
+def msg(i=1, text="", voice=False, audio=False, duration=None):
+    return SimpleNamespace(
+        id=i, chat_id=555, message=text, voice=voice, audio=audio, date=WHEN,
+        file=SimpleNamespace(duration=duration) if (voice or audio) else None,
+    )
+
+
+async def never_called(_message):
+    raise AssertionError("text messages must not be transcribed")
+
+
+async def fake_transcribe(_message):
+    return HybridTranscript(text="Meeting moved to 5", source="local")
+
+
+async def test_text_message_goes_straight_in_without_transcription():
+    item = await to_inbox_item(msg(text="Where are you?"), chat_name="Mom", transcribe=never_called)
+    assert (item.kind, item.text, item.chat_name, item.duration) == ("text", "Where are you?", "Mom", None)
+
+
+async def test_voice_note_is_transcribed_and_keeps_its_length_and_engine():
+    item = await to_inbox_item(msg(voice=True, duration=6), chat_name="Rahul", transcribe=fake_transcribe)
+    assert (item.kind, item.text, item.duration, item.source) == ("voice", "Meeting moved to 5", 6, "local")
+
+
+async def test_audio_files_are_treated_like_voice_notes():
+    item = await to_inbox_item(msg(audio=True, duration=30), chat_name="Rahul", transcribe=fake_transcribe)
+    assert item.kind == "voice"
+
+
+async def test_stickers_photos_and_empty_messages_are_skipped():
+    assert await to_inbox_item(msg(text=""), chat_name="Rahul", transcribe=never_called) is None
+
+
+async def test_received_time_is_shown_in_india_time():
+    item = await to_inbox_item(msg(text="hi"), chat_name="Mom", transcribe=never_called)
+    assert item.received_at == "15:00"
+
+
+def test_only_picked_chats_are_watched():
+    assert is_watched(555, {555, 777})
+    assert not is_watched(123, {555, 777})
+
+
+def test_load_watched_reads_chat_ids_from_settings_file(tmp_path):
+    path = tmp_path / "watched_chats.json"
+    path.write_text(json.dumps({"chats": [555, "me"]}))
+    assert load_watched(path, my_id=42) == {555, 42}
+
+
+def test_load_watched_defaults_to_saved_messages_when_no_file(tmp_path):
+    assert load_watched(tmp_path / "missing.json", my_id=42) == {42}
