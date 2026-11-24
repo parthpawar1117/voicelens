@@ -27,7 +27,43 @@ G2 microphone -> VoiceLens server -> OGG Opus voice note -> sent from your Teleg
 
 ## Setup
 
-Setup steps will be added as the build progresses.
+Requirements: Node 20.17+, Python 3.11+. No global installs needed.
+
+### 1. Glasses app (simulator)
+
+```bash
+cd g2-app
+npm install
+npm test                 # gesture tests
+npm run dev              # Vite on http://localhost:5173
+npm run simulate         # in a second terminal: Even Hub simulator
+```
+
+### 2. Server
+
+```bash
+cd server
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt   # macOS/Linux: .venv/bin/python
+.venv/Scripts/python -m pytest -q
+```
+
+### 3. Telegram credentials (your own)
+
+1. Create an app at <https://my.telegram.org> → API development tools.
+2. `cp server/env.example server/.env` and fill in `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`.
+3. Log in once: `server/.venv/Scripts/python server/login.py` (phone number + code).
+   This creates a session file in `server/`; it is gitignored. Treat it like a password.
+
+### 4. Check transcription on your account
+
+Send a voice note to your own Saved Messages, then:
+
+```bash
+server/.venv/Scripts/python server/try_transcribe.py
+```
+
+It prints the transcript and your remaining free transcriptions (non-Premium accounts).
 
 ## Privacy and Telegram rules
 
