@@ -36,3 +36,39 @@ describe('reportUiState', () => {
     await expect(reportUiState('http://x', { screen: 'inbox', selectedId: null, page: 0 }, fake as unknown as typeof fetch)).resolves.toBeUndefined()
   })
 })
+
+describe('reply API client', () => {
+  it('joins mic chunks, sends them as base64 and returns the draft', async () => {
+    const { prepareReply, toBase64 } = await import('./api')
+    const fake = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ draft_id: 'd1', text: 'On my way', format: 'voice', chat_name: 'Mom' }) })
+    const chunks = [new Uint8Array([1, 2]), new Uint8Array([3])]
+    const r = await prepareReply('http://x', 10, chunks, fake as unknown as typeof fetch)
+    expect(r).toEqual({ ok: true, draft: { draftId: 'd1', text: 'On my way', format: 'voice', chatName: 'Mom' } })
+    const body = JSON.parse(fake.mock.calls[0][1].body)
+    expect(body).toEqual({ item_id: 10, audio_b64: toBase64(new Uint8Array([1, 2, 3])) })
+    expect(toBase64(new Uint8Array([1, 2, 3]))).toBe('AQID')
+  })
+
+  it('turns a server error into a short message for the glasses', async () => {
+    const { prepareReply } = await import('./api')
+    const fake = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ detail: "didn't catch any speech, try again" }) })
+    expect(await prepareReply('http://x', 10, [new Uint8Array([1])], fake as unknown as typeof fetch))
+      .toEqual({ ok: false, message: "didn't catch any speech, try again" })
+  })
+
+  it('reports an empty recording without calling the server', async () => {
+    const { prepareReply } = await import('./api')
+    const fake = vi.fn()
+    expect((await prepareReply('http://x', 10, [], fake as unknown as typeof fetch)).ok).toBe(false)
+    expect(fake).not.toHaveBeenCalled()
+  })
+
+  it('sends and cancels drafts', async () => {
+    const { sendReply, cancelReply } = await import('./api')
+    const fake = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ sent: true }) })
+    expect(await sendReply('http://x', 'd1', 'text', fake as unknown as typeof fetch)).toBe(true)
+    expect(JSON.parse(fake.mock.calls[0][1].body)).toEqual({ draft_id: 'd1', format: 'text' })
+    await cancelReply('http://x', 'd1', fake as unknown as typeof fetch)
+    expect(fake.mock.calls[1][0]).toBe('http://x/reply/cancel')
+  })
+})
