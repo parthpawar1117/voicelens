@@ -69,3 +69,11 @@ describe('messageScreen', () => {
     expect(messageScreen(text, 99)).toContain('Where are you?')
   })
 })
+
+describe('message screen hint', () => {
+  it('tells you both ways to reply', () => {
+    const s = messageScreen(text, 0)
+    expect(s.split('\n').at(-1)).toBe('hold: speak | tap: quick reply | dbl-tap: back')
+    fits(s)
+  })
+})

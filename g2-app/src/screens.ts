@@ -72,6 +72,6 @@ export function messageScreen(item: Item, page: number): string {
   const p = Math.min(Math.max(0, page), pages - 1)
   const header = clip(`${clip(item.chat_name, 20)} | ${kindLabel(item)} | ${item.received_at}`, LINE_CHARS)
   const body = bodyLines(item).slice(p * BODY_LINES, (p + 1) * BODY_LINES)
-  const hint = pages > 1 ? `swipe: more ${p + 1}/${pages} | dbl-tap: back` : 'hold: reply | dbl-tap: back'
+  const hint = pages > 1 ? `swipe: more ${p + 1}/${pages} | dbl-tap: back` : 'hold: speak | tap: quick reply | dbl-tap: back'
   return [header, ...body, hint].join('\n')
 }

@@ -46,6 +46,36 @@ export async function prepareReply(base: string, itemId: number, chunks: Uint8Ar
   }
 }
 
+export interface QuickReply {
+  id: string
+  label: string
+  duration: number | null
+  has_voice: boolean
+}
+
+/** Your saved quick replies, or null if the server can't be reached. */
+export async function fetchQuickReplies(base: string, fetchFn: typeof fetch = fetch): Promise<QuickReply[] | null> {
+  try {
+    const res = await fetchFn(`${base}/quick-replies`, { cache: 'no-store' })
+    if (!res.ok) return null
+    return ((await res.json()) as { items: QuickReply[] }).items
+  } catch {
+    return null
+  }
+}
+
+/** Turn a saved quick reply into a draft for the usual countdown (nothing is sent yet). */
+export async function prepareQuick(base: string, itemId: number, quickId: string, fetchFn: typeof fetch = fetch): Promise<PrepareResult> {
+  try {
+    const res = await post(fetchFn, `${base}/reply/quick`, { item_id: itemId, quick_id: quickId })
+    if (!res.ok) return { ok: false, message: await errorMessage(res) }
+    const d = (await res.json()) as { draft_id: string; text: string; format: ReplyFormat; chat_name: string; voice_available: boolean }
+    return { ok: true, draft: { draftId: d.draft_id, text: d.text, format: d.format, chatName: d.chat_name, voiceAvailable: d.voice_available, quick: true } }
+  } catch {
+    return { ok: false, message: "Can't reach the VoiceLens server." }
+  }
+}
+
 export async function sendReply(base: string, draftId: string, format: ReplyFormat, fetchFn: typeof fetch = fetch): Promise<boolean> {
   try {
     const res = await post(fetchFn, `${base}/reply/send`, { draft_id: draftId, format })
