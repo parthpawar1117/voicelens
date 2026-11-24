@@ -36,6 +36,24 @@ async def to_inbox_item(message, *, chat_name: str, transcribe: Transcriber) -> 
     return None
 
 
+async def backfill(history, inbox, *, chat_name: str, transcribe: Transcriber) -> int:
+    """Add recent messages (given newest first, as Telegram returns them).
+
+    Adds oldest first so the inbox ends up newest first. One failed voice note
+    is skipped instead of stopping the whole backfill. Returns how many were added.
+    """
+    added = 0
+    for message in reversed(list(history)):
+        try:
+            item = await to_inbox_item(message, chat_name=chat_name, transcribe=transcribe)
+        except Exception:
+            continue
+        if item:
+            inbox.add(item)
+            added += 1
+    return added
+
+
 def is_watched(chat_id: int, watched: set[int]) -> bool:
     return chat_id in watched
 

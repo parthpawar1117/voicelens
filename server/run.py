@@ -26,11 +26,12 @@ from voicelens.app import create_app  # noqa: E402
 from voicelens.config import SERVER_DIR, load_settings  # noqa: E402
 from voicelens.hybrid import transcribe_hybrid  # noqa: E402
 from voicelens.inbox import Inbox  # noqa: E402
-from voicelens.ingest import is_watched, load_watched, to_inbox_item  # noqa: E402
+from voicelens.ingest import backfill, is_watched, load_watched, to_inbox_item  # noqa: E402
 from voicelens.local_whisper import LocalWhisper  # noqa: E402
 from voicelens.transcribe import transcribe_voice_note  # noqa: E402
 
 TMP = SERVER_DIR / "tmp"
+BACKFILL_PER_CHAT = 10
 
 
 def chat_title(chat, me_id: int) -> str:
@@ -76,6 +77,13 @@ async def main() -> None:
                 )
             finally:
                 path.unlink(missing_ok=True)
+
+        # Load recent history so the inbox isn't empty after a restart.
+        for chat_id in watched:
+            chat = await client.get_entity(chat_id)
+            history = [m async for m in client.iter_messages(chat_id, limit=BACKFILL_PER_CHAT)]
+            added = await backfill(history, inbox, chat_name=chat_title(chat, me.id), transcribe=transcribe)
+            print(f"Loaded {added} recent message(s) from {chat_title(chat, me.id)}.")
 
         @client.on(events.NewMessage())
         async def on_message(event):
