@@ -96,3 +96,11 @@ async def test_warm_up_loads_model_and_runs_one_transcription_on_silence():
     assert isinstance(audio, np.ndarray) and len(audio) >= 16000
     assert not audio.any()  # pure silence
     assert kwargs.get("task") == "translate"
+
+
+async def test_records_decode_and_model_time_of_the_last_call():
+    engine = make(FakeModel(["hi"]))
+    await engine("/tmp/a.ogg")
+    timings = engine.last_timings
+    assert set(timings) == {"decode_s", "model_s", "thread_wait_s"}
+    assert all(v >= 0 for v in timings.values())
