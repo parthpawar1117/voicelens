@@ -15,7 +15,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
-from telethon.errors import RPCError
+from telethon.errors import PremiumAccountRequiredError, RPCError
 from telethon.tl.functions.messages import TranscribeAudioRequest
 
 
@@ -61,6 +61,10 @@ async def transcribe_voice_note(
     for attempt in range(max_attempts):
         try:
             result = await client(TranscribeAudioRequest(peer=peer, msg_id=msg_id))
+        except PremiumAccountRequiredError as err:
+            # Real accounts can report this as code 403 "FORBIDDEN", so match
+            # the exception type, not only the message text.
+            raise QuotaExhausted(err.message) from err
         except RPCError as err:
             error_type = _ERRORS.get(err.message, TranscriptionFailed)
             raise error_type(err.message) from err

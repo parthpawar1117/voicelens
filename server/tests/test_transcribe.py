@@ -5,7 +5,7 @@ queued responses, which is how TelegramClient.__call__ behaves.
 """
 
 import pytest
-from telethon.errors import RPCError
+from telethon.errors import PremiumAccountRequiredError, RPCError
 from telethon.tl.types.messages import TranscribedAudio
 
 from voicelens.transcribe import (
@@ -95,4 +95,14 @@ async def test_non_voice_message_is_rejected_clearly():
 async def test_other_telegram_errors_become_transcription_failed():
     client = FakeClient(rpc("TRANSCRIPTION_FAILED"))
     with pytest.raises(TranscriptionFailed):
+        await transcribe_voice_note(client, peer="me", msg_id=1, sleep=no_sleep)
+
+
+async def test_premium_error_with_forbidden_text_still_means_quota_exhausted():
+    # Seen on a real non-Premium account (weekly trial = 0): Telethon raises
+    # PremiumAccountRequiredError with code 403 but message "FORBIDDEN".
+    err = PremiumAccountRequiredError(request=None)
+    err.message = "FORBIDDEN"
+    client = FakeClient(err)
+    with pytest.raises(QuotaExhausted):
         await transcribe_voice_note(client, peer="me", msg_id=1, sleep=no_sleep)
