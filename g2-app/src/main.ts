@@ -4,7 +4,7 @@ import {
   CreateStartUpPageContainer,
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk'
-import { fetchInbox, SERVER_URL } from './api'
+import { fetchInbox, reportUiState, SERVER_URL } from './api'
 import { classifyGesture } from './gestures'
 import { initialNav, reduce, render, type Nav } from './nav'
 import type { Item } from './screens'
@@ -44,6 +44,7 @@ let online = false
 
 async function draw() {
   const content = online ? render(nav, items) : `VoiceLens\n\nCan't reach the VoiceLens server\n${SERVER_URL}\n\nStart it: server/run.py`
+  void reportUiState(SERVER_URL, nav)
   if (content === shown) return
   shown = content
   setTranscript(content, '')
