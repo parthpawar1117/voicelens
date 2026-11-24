@@ -58,8 +58,10 @@ describe('preview and countdown', () => {
   it('each tick counts down; at zero it moves to sending', () => {
     let s = reduce(thinking, { type: 'draft', draft }, items)
     s = reduce(s, { type: 'tick' }, items)
-    expect(s.reply?.countdown).toBe(2)
-    for (let i = 0; i < 4; i++) s = reduce(s, { type: 'tick' }, items)
+    expect(s.reply?.countdown).toBe(4)
+    for (let i = 0; i < 3; i++) s = reduce(s, { type: 'tick' }, items)
+    expect(s.screen).toBe('confirm') // still 1 s left
+    s = reduce(s, { type: 'tick' }, items)
     expect(s.screen).toBe('sending')
   })
 

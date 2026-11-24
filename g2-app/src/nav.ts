@@ -4,9 +4,10 @@
 // when the screen changes; this file only decides what happens next.
 //
 // Gestures: swipe = move (harmless if a tap is misread), tap = open,
-// double tap = back/cancel. Replies: hold (or tap) on a message to record,
-// release (or tap) to stop. Nothing is sent before a 3 s countdown ends,
-// and a tap during the countdown never sends early.
+// double tap = back/cancel (on the inbox: jump to newest; it never exits).
+// Replies: hold (or tap) on a message to record, release (or tap) to stop.
+// Nothing is sent before a 5 s countdown ends; during it, tap or swipe
+// switches voice/text (never sends) and double tap cancels.
 
 import type { Gesture } from './gestures'
 import { inboxScreen, messagePages, messageScreen, wrap, LINE_CHARS, type Item } from './screens'
@@ -35,7 +36,7 @@ export type AppEvent =
   | { type: 'done' }
   | { type: 'error'; message: string }
 
-export const COUNTDOWN_S = 3
+export const COUNTDOWN_S = 5
 
 export function initialNav(items: Item[]): Nav {
   return { screen: 'inbox', selectedId: items[0]?.id ?? null, page: 0 }
@@ -76,7 +77,8 @@ export function reduce(s: Nav, input: Gesture | AppEvent, items: Item[]): Nav {
         case 'swipe_down': return moveSelection(s, items, +1)
         case 'swipe_up': return moveSelection(s, items, -1)
         case 'tap': return s.selectedId === null ? s : { screen: 'message', selectedId: s.selectedId, page: 0 }
-        case 'double_tap': return { ...s, screen: 'exit' }
+        // Never exit from here: one misplaced double tap closed the whole app.
+        case 'double_tap': return { ...s, selectedId: items[0]?.id ?? null }
         default: return s
       }
 
@@ -104,12 +106,13 @@ export function reduce(s: Nav, input: Gesture | AppEvent, items: Item[]): Nav {
 
     case 'confirm':
       if (!s.reply) return backToMessage(s)
-      if (g === 'swipe_up') {
+      if (g === 'tap' || g === 'swipe_up' || g === 'swipe_down') {
+        // Switching is harmless (it never sends), so any simple gesture does it.
         const format: ReplyFormat = s.reply.format === 'text' ? 'voice' : 'text'
         return { ...s, reply: { ...s.reply, format, countdown: COUNTDOWN_S } }
       }
       if (g === 'double_tap') return backToMessage(s)
-      return s // a tap never sends early
+      return s
 
     case 'error':
       return backToMessage(s)
@@ -138,7 +141,7 @@ export function render(s: Nav, items: Item[]): string {
       const said = wrap(`"${r.text}"`, LINE_CHARS).slice(0, 5)
       const other = r.format === 'text' ? 'voice' : 'text'
       const status = s.screen === 'sending' ? `Sending as ${formatName(r.format)}...` : `Sending as ${formatName(r.format)} in ${r.countdown}...`
-      return [`Reply to ${to}`, 'You said:', ...said, status, `swipe up: send as ${other} | dbl-tap: cancel`].join('\n')
+      return [`Reply to ${to}`, 'You said:', ...said, status, `tap: switch to ${other} | dbl-tap: cancel`].join('\n')
     }
     case 'sent':
       return [`Sent to ${to}`, '', `as ${formatName(s.reply?.format ?? 'text')}`, '', 'Back to inbox...'].join('\n')
