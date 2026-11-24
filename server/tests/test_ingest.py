@@ -87,3 +87,7 @@ async def test_backfill_skips_media_it_cannot_show_and_keeps_going_after_a_failu
     added = await backfill(history, inbox, chat_name="Mom", transcribe=flaky)
     assert added == 1
     assert [x.text for x in inbox.items()] == ["hi"]
+
+
+def test_demo_friend_bot_chat_is_watched_automatically(tmp_path):
+    assert load_watched(tmp_path / "missing.json", my_id=42, extra={777}) == {42, 777}
