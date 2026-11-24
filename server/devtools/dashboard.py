@@ -103,6 +103,39 @@ def _http(url: str, data: dict | None = None, timeout: float = 2.0) -> bytes | N
         return None
 
 
+QUICK_DIR = SERVER / "quick_replies"
+
+
+def quick_clip(qid: str) -> bytes | None:
+    """A saved quick-reply clip, only by its exact id (no paths)."""
+    import re
+
+    if not re.fullmatch(r"q\d+", qid or ""):
+        return None
+    path = QUICK_DIR / f"{qid}.ogg"
+    return path.read_bytes() if path.is_file() else None
+
+
+def server_call(method: str, path: str, data: dict | None = None, timeout: float = 60) -> tuple[int, dict]:
+    """Call the VoiceLens server and return (status, json) even for errors."""
+    import urllib.error
+    import urllib.request
+
+    body = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request(f"{VOICELENS}{path}", data=body, method=method,
+                                 headers={"Content-Type": "application/json"} if body else {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as err:
+        try:
+            return err.code, json.loads(err.read() or b"{}")
+        except json.JSONDecodeError:
+            return err.code, {"detail": f"HTTP {err.code}"}
+    except OSError:
+        return 503, {"detail": "The VoiceLens server isn't running"}
+
+
 def send_gesture(action: str) -> bool:
     return _http(f"{SIM}/api/input", {"action": validate_action(action)}) is not None
 
@@ -318,6 +351,9 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
 .gloff p{margin:0;color:#e6e6e6;font-size:15px}
 .gloff button{background:#3cfa44;color:#0b0f0b;border:0;border-radius:10px;padding:14px 28px;font:700 17px system-ui;cursor:pointer}
 .gloff small{color:#9a9a9a}
+.qrrow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #262a26}
+.qrrow:last-child{border-bottom:0}.qrrow .k{font-size:11px;color:#3cfa44;margin-left:6px}
+.qrrow audio{height:28px;max-width:220px}
 .mini{background:none;border:1px solid #3a3f3a;color:#9a9a9a;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
 .mini:hover{border-color:#3cfa44;color:#3cfa44}
 .hold:hover{border-color:#3cfa44}.hold.on{background:#ff5a4f;border-color:#ff5a4f;color:#fff}.hold.on small{color:#fff}
@@ -363,6 +399,16 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
   <div class="glmeta"><span>Screen blank or stuck?</span><button id="restartbtn" class="mini">↻ Restart glasses app</button></div>
  </div>
  <div class="glcard"><b style="font-size:13px;color:#9a9a9a">FULL INBOX · newest first · <span id="incount">0</span></b><div id="inlist"></div></div>
+</div>
+<h2>🤫 Quick replies <span class="pill" id="qrbadge">silent replies, in your voice</span></h2>
+<div class="glcard" style="margin-top:14px">
+ <p class="file" id="qrhelp" style="margin:0 0 10px">Save replies once, send them from the glasses without speaking: open a message, tap, choose. If they sent a voice note, they get your recorded voice.</p>
+ <div id="qrlist"></div>
+ <div class="frsend" style="margin-top:10px">
+  <input id="qrtext" type="text" maxlength="64" placeholder="Reply text, e.g. In a meeting, will call you at 6" autocomplete="off">
+  <button id="qraddtext">Add as text</button>
+  <button id="qrrec" class="hold" style="margin:0">🎤 Hold to record it in your voice<small>the text above is optional: Whisper writes it from your recording</small></button>
+ </div>
 </div>
 <h2>📱 <span id="frname">Demo friend</span>'s phone <span id="frbadge" class="pill">checking…</span></h2>
 <div class="glcard" style="margin-top:14px">
@@ -511,6 +557,46 @@ function frRecStop(){ if(rec&&rec.state==='recording'){ rec.stop(); vb.classList
 vb.addEventListener('pointerdown',e=>{ e.preventDefault(); vb.setPointerCapture(e.pointerId); frRecStart() });
 vb.addEventListener('pointerup',frRecStop); vb.addEventListener('pointercancel',frRecStop);
 frTick(); setInterval(frTick,700);
+// ---- quick replies: record once in your voice, send silently from the glasses ----
+let qrSig='';
+async function qrTick(){
+ let r; try{ r=await (await fetch('/api/quick')).json() }catch(e){ return }
+ if(!r.ok){ $('qrlist').innerHTML='<p class="file">Start the VoiceLens server to manage quick replies.</p>'; qrSig=''; return }
+ const sig=JSON.stringify(r.items); if(sig===qrSig) return; qrSig=sig;
+ $('qrlist').innerHTML=r.items.map(q=>`<div class="qrrow"><div>${esc(q.label)}<span class="k">${q.has_voice?'🎤 your voice · '+q.duration+'s':'text only'}</span></div>`+
+  `${q.has_voice?`<audio controls preload="none" src="/api/quick/audio?id=${encodeURIComponent(q.id)}"></audio>`:'<span></span>'}`+
+  `<button class="mini" data-del="${esc(q.id)}" title="Delete">✕</button></div>`).join('');
+ $('qrlist').querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',async()=>{
+  await fetch('/api/quick/delete',{method:'POST',body:JSON.stringify({id:b.dataset.del})}); qrSig=''; qrTick() }));
+}
+function qrSay(msg){ $('qrhelp').textContent=msg }
+async function qrAdd(blob){
+ const label=$('qrtext').value.trim();
+ qrSay(blob?'Saving your recording… (Whisper is writing the text)':'Saving…');
+ const r=await (await fetch('/api/quick/add',{method:'POST',headers:{'X-Label':encodeURIComponent(label)},body:blob||''})).json();
+ if(r.ok){ $('qrtext').value=''; qrSay(`Saved: “${r.label}”${r.has_voice?' with your voice':''}. On the glasses: open a message, tap, choose it.`) }
+ else qrSay('⚠ '+(r.error||'Could not save that reply'));
+ qrSig=''; qrTick();
+}
+$('qraddtext').addEventListener('click',()=>{ if($('qrtext').value.trim()) qrAdd(null); else qrSay('⚠ Type the reply first, or record it.') });
+$('qrtext').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('qraddtext').click() } });
+let qrRec=null, qrChunks=[]; const qb=$('qrrec');
+async function qrStart(){
+ if(qrRec) return;
+ try{
+  const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  qrChunks=[]; qrRec=new MediaRecorder(stream,{mimeType:'audio/webm;codecs=opus'});
+  qrRec.ondataavailable=e=>{ if(e.data.size) qrChunks.push(e.data) };
+  qrRec.onstop=()=>{ stream.getTracks().forEach(t=>t.stop()); const blob=new Blob(qrChunks,{type:'audio/webm'}); qrRec=null;
+   qb.classList.remove('on'); qb.firstChild.textContent='🎤 Hold to record it in your voice';
+   if(blob.size<1500){ qrSay('⚠ Too short. Hold the button the whole time you speak.'); return } qrAdd(blob) };
+  qrRec.start(); qb.classList.add('on'); qb.firstChild.textContent='● Recording your quick reply… release to save';
+ }catch(e){ qrSay('⚠ Microphone blocked: allow it in the address bar, then try again.') }
+}
+function qrStop(){ if(qrRec&&qrRec.state==='recording') qrRec.stop() }
+qb.addEventListener('pointerdown',e=>{ e.preventDefault(); qb.setPointerCapture(e.pointerId); qrStart() });
+qb.addEventListener('pointerup',qrStop); qb.addEventListener('pointercancel',qrStop);
+qrTick(); setInterval(qrTick,3000);
 document.addEventListener('keydown',e=>{
  if(e.target.closest&&e.target.closest('input,textarea')) return;
  if(e.code==='Space'){ e.preventDefault(); if(!e.repeat) holdStart(); return }
@@ -536,9 +622,9 @@ async function glTick(){
 // Reply bar: plain-language choices while a reply is being made.
 function renderReply(ui){
  const bar=$('replybar'), scr=ui&&ui.screen, choices=$('rbchoices');
- const show=['recording','thinking','confirm','sending','sent','error'].includes(scr);
+ const show=['quick','recording','thinking','confirm','sending','sent','error'].includes(scr);
  bar.hidden=!show; if(!show) return;
- const t={recording:'● Recording… release the button (or Space) to finish',thinking:'Preparing your preview…',confirm:`Sending as ${ui.reply_format} in ${ui.countdown} s — choose or wait`,sending:'Sending…',sent:'✓ Sent',error:'Reply not sent'}[scr];
+ const t={quick:'Quick replies: ↑ ↓ to choose, Enter to pick, Esc to go back',recording:'● Recording… release the button (or Space) to finish',thinking:'Preparing your preview…',confirm:`Sending as ${ui.reply_format} in ${ui.countdown} s — choose or wait`,sending:'Sending…',sent:'✓ Sent',error:'Reply not sent'}[scr];
  $('rbtitle').textContent=t;
  $('rbtext').textContent=ui.reply_text?`You said: “${ui.reply_text}”`:'';
  choices.style.display=scr==='confirm'?'grid':'none';
@@ -577,6 +663,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(503, "simulator not running")
         elif self.path == "/api/glasses":
             self._send(json.dumps(glasses_status()).encode(), "application/json")
+        elif self.path == "/api/quick":
+            status, body = server_call("GET", "/quick-replies")
+            self._send(json.dumps({"ok": status == 200, **body}).encode(), "application/json")
+        elif self.path.startswith("/api/quick/audio?id="):
+            clip = quick_clip(self.path.split("=", 1)[1])
+            if clip:
+                self._send(clip, "audio/ogg")
+            else:
+                self.send_error(404)
         elif self.path == "/api/friend":
             body = {"enabled": FRIEND is not None, "name": FRIEND_NAME,
                     "ready": bool(FRIEND and FRIEND.chat_id), "seq": FRIEND.seq if FRIEND else 0,
@@ -595,6 +690,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length)
+        if self.path == "/api/quick/add":  # raw browser recording; label in a header
+            import base64
+            from urllib.parse import unquote
+            label = unquote(self.headers.get("X-Label", "")).strip()
+            payload = {"label": label or None, "audio_b64": base64.b64encode(raw).decode() if raw else None}
+            status, body = server_call("POST", "/quick-replies", payload)
+            return self._send(json.dumps({"ok": status == 200, "error": body.get("detail"), **body}).encode(), "application/json")
+        if self.path == "/api/quick/delete":
+            qid = json.loads(raw or b"{}").get("id", "")
+            status, body = server_call("DELETE", f"/quick-replies/{qid}")
+            return self._send(json.dumps({"ok": status == 200}).encode(), "application/json")
         if self.path == "/api/friend/voice":  # raw browser recording, not JSON
             return self._friend(lambda f: f.send_voice(to_ogg_opus(raw)))
         try:

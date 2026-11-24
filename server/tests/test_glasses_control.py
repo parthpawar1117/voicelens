@@ -56,7 +56,7 @@ def test_quick_reply_clip_path_is_only_inside_the_store(tmp_path, monkeypatch):
     monkeypatch.setattr(dashboard, "QUICK_DIR", tmp_path)
     (tmp_path / "q3.ogg").write_bytes(b"OggS")
     assert dashboard.quick_clip("q3") == b"OggS"
-    for bad in ("../.env", "q3.ogg", "..\x", "q", "q3/../../x", ""):
+    for bad in ("../.env", "q3.ogg", r"..\x", "q", "q3/../../x", ""):
         assert dashboard.quick_clip(bad) is None
     assert dashboard.quick_clip("q99") is None
 
