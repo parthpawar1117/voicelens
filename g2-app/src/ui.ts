@@ -9,7 +9,7 @@ export function mountUi() {
   app.innerHTML = `
     <main class="panel">
       <header>
-        <h1>ASR Demo</h1>
+        <h1>VoiceLens</h1>
         <div id="status" class="status status-connecting">Connecting…</div>
       </header>
       <section class="transcript" aria-live="polite">
