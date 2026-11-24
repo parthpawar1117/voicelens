@@ -1,7 +1,8 @@
 """Local Whisper engine (faster-whisper) for users without Telegram Premium.
 
 Runs on the user's own machine: audio is not sent to any third-party service.
-The model is loaded on first use (download ~480 MB for "small" on first run) and
+The model is loaded on first use (download ~480 MB for "small" on first run),
+on the NVIDIA GPU when available (0.2 s per short note) or the CPU (~3 s), and
 kept in memory. Language is auto-detected and the output is translated to
 English, because the G2 firmware font may drop Devanagari characters. On real
 notes, "small" + translate turned Hinglish into accurate English; English
@@ -36,11 +37,65 @@ def decode_to_16k_mono(audio_path: str) -> np.ndarray:
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def _default_factory(model_size: str = DEFAULT_MODEL):
-    from faster_whisper import WhisperModel  # heavy import, only when needed
+def pick_device(cuda_devices: int) -> tuple[str, str]:
+    """GPU with float16 when CUDA is visible, else CPU with int8.
 
-    # int8 on CPU keeps memory near 1 GB for "small".
-    return WhisperModel(model_size, device="cpu", compute_type="int8")
+    Measured on an RTX 4050 laptop: "small" took 0.17-0.25 s per short note on
+    the GPU versus ~3.1 s on the CPU, with identical text.
+    """
+    return ("cuda", "float16") if cuda_devices > 0 else ("cpu", "int8")
+
+
+def _add_nvidia_dll_dirs() -> None:
+    """Let ctranslate2 find cuBLAS/cuDNN installed as pip wheels (Windows)."""
+    import os
+    import sysconfig
+    from pathlib import Path
+
+    root = Path(sysconfig.get_paths()["purelib"]) / "nvidia"
+    for bin_dir in root.glob("*/bin"):
+        if hasattr(os, "add_dll_directory"):
+            os.add_dll_directory(str(bin_dir))
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+
+
+def _probe(model) -> None:
+    # Missing CUDA libraries only fail on the first inference, not on load.
+    if hasattr(model, "transcribe"):
+        segments, _ = model.transcribe(np.zeros(SAMPLE_RATE // 2, dtype=np.float32), beam_size=1)
+        list(segments)
+
+
+def load_model(size: str, cuda_devices: int | None = None, whisper_cls=None):
+    """Return (model, device). Tries the GPU first and falls back to the CPU."""
+    if whisper_cls is None:
+        _add_nvidia_dll_dirs()
+        from faster_whisper import WhisperModel  # heavy import, only when needed
+
+        whisper_cls = WhisperModel
+    if cuda_devices is None:
+        import ctranslate2
+
+        cuda_devices = ctranslate2.get_cuda_device_count()
+
+    device, compute_type = pick_device(cuda_devices)
+    if device == "cuda":
+        try:
+            model = whisper_cls(size, device="cuda", compute_type=compute_type)
+            _probe(model)
+            return model, "cuda"
+        except Exception:  # missing DLLs, out of GPU memory, driver issues
+            pass
+    return whisper_cls(size, device="cpu", compute_type="int8"), "cpu"
+
+
+loaded_device: str | None = None
+
+
+def _default_factory(model_size: str = DEFAULT_MODEL):
+    global loaded_device
+    model, loaded_device = load_model(model_size)
+    return model
 
 
 class LocalWhisper:

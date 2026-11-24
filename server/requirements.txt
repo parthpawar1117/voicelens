@@ -8,3 +8,6 @@ pytest-asyncio==0.24.*
 httpx==0.28.*
 faster-whisper==1.1.*
 requests==2.*
+# GPU (optional, Windows/Linux with NVIDIA): Whisper falls back to CPU without these
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.28.1.4
