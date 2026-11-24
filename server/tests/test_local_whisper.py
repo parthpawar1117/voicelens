@@ -1,34 +1,47 @@
-"""Local Whisper engine: loads the model once, lazily, and joins segment text."""
+"""Local Whisper engine: decodes with our ffmpeg, loads the model once, joins text."""
 
+import subprocess
 from types import SimpleNamespace
 
-from voicelens.local_whisper import LocalWhisper
+import imageio_ffmpeg
+import numpy as np
+
+from voicelens.local_whisper import LocalWhisper, decode_to_16k_mono
 
 
 class FakeModel:
     def __init__(self, texts):
-        self.texts, self.paths = texts, []
+        self.texts, self.inputs = texts, []
 
-    def transcribe(self, path, **kwargs):
-        self.paths.append((path, kwargs))
+    def transcribe(self, audio, **kwargs):
+        self.inputs.append((audio, kwargs))
         segments = (SimpleNamespace(text=t) for t in self.texts)
         return segments, SimpleNamespace(language="en")
 
 
+def make(model, loads=None):
+    def factory():
+        if loads is not None:
+            loads.append(1)
+        return model
+
+    return LocalWhisper(model_factory=factory, decoder=lambda path: f"decoded:{path}")
+
+
 async def test_joins_segment_text_and_trims_whitespace():
-    model = FakeModel([" Meeting moved", " to 5 pm. "])
-    engine = LocalWhisper(model_factory=lambda: model)
+    engine = make(FakeModel([" Meeting moved", " to 5 pm. "]))
     assert await engine("/tmp/a.ogg") == "Meeting moved to 5 pm."
+
+
+async def test_model_receives_decoded_audio_not_the_file_path():
+    model = FakeModel(["hi"])
+    await make(model)("/tmp/a.ogg")
+    assert model.inputs[0][0] == "decoded:/tmp/a.ogg"
 
 
 async def test_model_is_loaded_lazily_and_only_once():
     loads = []
-
-    def factory():
-        loads.append(1)
-        return FakeModel(["hi"])
-
-    engine = LocalWhisper(model_factory=factory)
+    engine = make(FakeModel(["hi"]), loads)
     assert loads == []
     await engine("/tmp/a.ogg")
     await engine("/tmp/b.ogg")
@@ -37,10 +50,23 @@ async def test_model_is_loaded_lazily_and_only_once():
 
 async def test_lets_whisper_detect_the_language_for_hinglish():
     model = FakeModel(["kal meeting hai"])
-    await LocalWhisper(model_factory=lambda: model)("/tmp/a.ogg")
-    _, kwargs = model.paths[0]
-    assert kwargs.get("language") is None
+    await make(model)("/tmp/a.ogg")
+    assert model.inputs[0][1].get("language") is None
 
 
 async def test_empty_audio_gives_empty_string():
-    assert await LocalWhisper(model_factory=lambda: FakeModel([]))("/tmp/a.ogg") == ""
+    assert await make(FakeModel([]))("/tmp/a.ogg") == ""
+
+
+def test_decoder_turns_an_ogg_opus_file_into_16k_float_samples(tmp_path):
+    # Build a real 1-second Telegram-style voice file (OGG Opus) with our ffmpeg.
+    ogg = tmp_path / "tone.ogg"
+    subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-loglevel", "error", "-f", "lavfi",
+         "-i", "sine=frequency=440:duration=1", "-c:a", "libopus", str(ogg)],
+        check=True,
+    )
+    samples = decode_to_16k_mono(str(ogg))
+    assert samples.dtype == np.float32
+    assert 15000 < len(samples) < 17000
+    assert 0 < np.abs(samples).max() <= 1.0

@@ -1,44 +1,62 @@
-"""Day-1 check: can Telegram transcribe your voice notes through the API?
+"""Day-1 check: turn your latest voice notes into text with the hybrid engine.
 
-1. Send a voice note to your own "Saved Messages" in Telegram.
+1. Send one or more voice notes to your own "Saved Messages" in Telegram.
 2. Run:  server/.venv/Scripts/python server/try_transcribe.py
 
-It finds the latest voice note in Saved Messages, asks Telegram to transcribe it
-and prints the text plus your remaining free transcriptions (non-Premium).
-It only reads; it never sends, deletes or marks anything.
+For each of the newest 3 voice notes it tries Telegram's own transcription
+(Premium) and falls back to local Whisper on this computer. The first local run
+downloads the Whisper model (~145 MB). The script only reads; it never sends,
+deletes or marks anything. Downloaded audio is removed afterwards.
 """
 
 import asyncio
+import time
+from pathlib import Path
 
 from telethon import TelegramClient
 
-from voicelens.config import load_settings
+from voicelens.config import SERVER_DIR, load_settings
+from voicelens.hybrid import transcribe_hybrid
+from voicelens.local_whisper import LocalWhisper
 from voicelens.transcribe import TranscriptionError, transcribe_voice_note
+
+TMP = SERVER_DIR / "tmp"
 
 
 async def main() -> None:
     settings = load_settings()
+    TMP.mkdir(exist_ok=True)
+    local = LocalWhisper()
+    state: dict = {}
+
     async with TelegramClient(str(settings.session_path), settings.api_id, settings.api_hash) as client:
-        async for message in client.iter_messages("me", limit=50):
-            if message.voice:
-                break
-        else:
+        voice_notes = [m async for m in client.iter_messages("me", limit=50) if m.voice][:3]
+        if not voice_notes:
             print("No voice note in your last 50 Saved Messages. Send one and retry.")
             return
 
-        print(f"Voice note from {message.date:%Y-%m-%d %H:%M}, {message.file.duration or '?'} s")
-        try:
-            result = await transcribe_voice_note(client, peer="me", msg_id=message.id)
-        except TranscriptionError as err:
-            print(f"Transcription failed: {type(err).__name__}: {err}")
-            return
+        async def telegram(peer, msg_id):
+            return await transcribe_voice_note(client, peer=peer, msg_id=msg_id)
 
-        print(f"Text: {result.text}")
-        print(f"Complete: {result.complete}")
-        if result.trial_remaining is not None:
-            print(f"Free transcriptions left this week: {result.trial_remaining}")
-        else:
-            print("No trial counter returned (Premium account, or unlimited).")
+        async def download(peer, msg_id):
+            message = next(m for m in voice_notes if m.id == msg_id)
+            return await message.download_media(file=str(TMP / f"{msg_id}.ogg"))
+
+        for message in voice_notes:
+            print(f"\nVoice note {message.date:%Y-%m-%d %H:%M} UTC, {message.file.duration or '?'} s")
+            started = time.perf_counter()
+            try:
+                result = await transcribe_hybrid(
+                    peer="me", msg_id=message.id, telegram=telegram,
+                    local=local, download=download, state=state,
+                )
+            except TranscriptionError as err:
+                print(f"  failed: {type(err).__name__}: {err}")
+                continue
+            finally:
+                Path(TMP / f"{message.id}.ogg").unlink(missing_ok=True)
+            print(f"  source: {result.source}  ({time.perf_counter() - started:.1f} s)")
+            print(f"  text:   {result.text}")
 
 
 if __name__ == "__main__":
