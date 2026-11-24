@@ -145,6 +145,15 @@ class LocalWhisper:
         silence = np.zeros(SAMPLE_RATE, dtype=np.float32)
         await asyncio.to_thread(self._run, silence)
 
+    async def transcribe_pcm(self, pcm: bytes) -> str:
+        """Your own speech from the G2 mic (16 kHz mono s16le), in English."""
+        audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+        self._busy += 1
+        try:
+            return await asyncio.to_thread(self._run, audio)
+        finally:
+            self._busy -= 1
+
     def _ping(self) -> None:
         # VAD off so the model really runs on the GPU instead of skipping silence.
         tiny = np.zeros(SAMPLE_RATE // 10, dtype=np.float32)  # 0.1 s
