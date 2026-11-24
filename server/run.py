@@ -7,7 +7,8 @@
   (Telegram for Premium, else local Whisper on the GPU, kept warm).
 - Serves the inbox on http://127.0.0.1:8787 for the G2 app.
 
-Read-only on Telegram for now: it never sends, deletes or marks anything.
+Sends a reply only after the glasses confirm (3 s countdown), only to picked
+chats. It never deletes anything or marks voice notes as listened.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from voicelens.hybrid import transcribe_hybrid  # noqa: E402
 from voicelens.inbox import Inbox  # noqa: E402
 from voicelens.ingest import backfill, is_watched, load_watched, to_inbox_item  # noqa: E402
 from voicelens.local_whisper import LocalWhisper  # noqa: E402
+from voicelens.reply import ReplyService  # noqa: E402
 from voicelens.transcribe import transcribe_voice_note  # noqa: E402
 
 TMP = SERVER_DIR / "tmp"
@@ -100,8 +102,22 @@ async def main() -> None:
                 inbox.add(item)
                 print(f"+ {item.kind:5} from {item.chat_name}: {item.text[:60]}")
 
+        class TelegramSender:
+            """Sends replies from your account, only when the glasses confirm."""
+
+            async def send_text(self, chat_id, text, reply_to):
+                await client.send_message(chat_id, text, reply_to=reply_to)
+                print(f"> sent text to {chat_id}: {text[:60]}")
+
+            async def send_voice(self, chat_id, ogg_path, reply_to):
+                await client.send_file(chat_id, str(ogg_path), voice_note=True, reply_to=reply_to)
+                print(f"> sent voice note to {chat_id}")
+
+        replies = ReplyService(inbox=inbox, stt=local.transcribe_pcm, telegram=TelegramSender(),
+                               watched=watched, tmp_dir=TMP)
+
         server = uvicorn.Server(uvicorn.Config(
-            create_app(inbox), host="127.0.0.1", port=settings.port, log_level="warning",
+            create_app(inbox, replies=replies), host="127.0.0.1", port=settings.port, log_level="warning",
         ))
         print(f"Inbox API on http://127.0.0.1:{settings.port}/inbox")
         try:
