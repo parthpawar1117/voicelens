@@ -52,6 +52,21 @@ def parse_replies(updates: list[dict], offset: int | None = None) -> tuple[list[
     return replies, chat_id, offset
 
 
+def to_ogg_opus(audio: bytes) -> bytes:
+    """Any recording (e.g. the browser's WebM) -> OGG Opus, Telegram's voice format."""
+    if not audio:
+        raise ValueError("empty recording")
+    import subprocess
+
+    import imageio_ffmpeg
+
+    return subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-loglevel", "error", "-i", "-", "-vn",
+         "-c:a", "libopus", "-b:a", "32k", "-application", "voip", "-f", "ogg", "-"],
+        input=audio, capture_output=True, check=True,
+    ).stdout
+
+
 def make_bot_api(token: str) -> BotCall:
     """Call the Bot API with the standard library (JSON or multipart upload)."""
 
