@@ -247,8 +247,41 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
 .file{color:#9a9a9a;font-size:12px}.msg{color:#ff8a80;font-size:12px}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:#cfcfcf;white-space:pre}
 .voice td{font-size:13px}.src{color:#3cfa44}
+.gl{display:grid;grid-template-columns:minmax(0,620px) minmax(0,1fr);gap:16px;margin-top:14px}
+@media (max-width:900px){.gl{grid-template-columns:1fr}}
+.glcard{background:#1d201d;border:1px solid #2c302c;border-radius:10px;padding:14px;min-width:0}
+#glimg{display:block;width:100%;aspect-ratio:2/1;background:#000;border-radius:8px;cursor:pointer;image-rendering:pixelated;border:1px solid #2c302c;outline:none}
+#glimg:focus-visible{border-color:#3cfa44}
+.pad{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.pad button{background:#262a26;color:#e6e6e6;border:1px solid #3a3f3a;border-radius:8px;padding:12px 6px;font:600 14px system-ui;cursor:pointer}
+.pad button:hover{border-color:#3cfa44}.pad button.hit{background:#3cfa44;color:#0b0f0b}
+.pad button small{display:block;font-weight:400;color:#9a9a9a;font-size:11px;margin-top:2px}
+.pad button.hit small{color:#0b0f0b}
+.glmeta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#9a9a9a}
+#gllog{font:12px ui-monospace,Consolas,monospace;color:#9a9a9a}
+.inrow{display:grid;grid-template-columns:1fr auto;gap:10px;padding:10px 0;border-bottom:1px solid #262a26;align-items:start}
+.inrow:last-child{border-bottom:0}.inrow.sel{background:rgba(60,250,68,.06)}
+.inrow b{font-size:13px}.inrow .k{font-size:11px;color:#3cfa44;margin-left:6px}
+.inrow p{margin:4px 0 0;font-size:13px;color:#cfcfcf;white-space:pre-wrap;word-break:break-word}
+.inrow button{background:none;border:1px solid #3a3f3a;color:#e6e6e6;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:12px;white-space:nowrap}
+.inrow button:hover{border-color:#3cfa44;color:#3cfa44}
+#inlist{max-height:430px;overflow:auto}
 </style></head><body><main>
 <div class="top"><h1>VoiceLens · live test dashboard</h1><span id="badge" class="pill run">starting…</span></div>
+<h2>Glasses <span id="glbadge" class="pill">checking…</span></h2>
+<div class="gl">
+ <div class="glcard">
+  <img id="glimg" tabindex="0" alt="Live G2 glasses screen. Click to tap, double-click to double-tap, scroll to swipe." src="/glasses.png">
+  <div class="pad">
+   <button data-a="up">▲ Swipe up<small>key ↑ · wheel up</small></button>
+   <button data-a="down">▼ Swipe down<small>key ↓ · wheel down</small></button>
+   <button data-a="click">● Tap<small>Enter · click screen</small></button>
+   <button data-a="double_click">◀ Double-tap<small>Esc · double-click</small></button>
+  </div>
+  <div class="glmeta"><span id="glui">screen: –</span><span id="gllog">no gestures yet</span></div>
+ </div>
+ <div class="glcard"><b style="font-size:13px;color:#9a9a9a">FULL INBOX · newest first · <span id="incount">0</span></b><div id="inlist"></div></div>
+</div>
 <h2>Live transcription <span id="livebadge" class="pill">listener not running</span></h2>
 <div class="stats">
  <div class="stat"><b id="l_count">–</b><span>notes transcribed</span></div>
@@ -307,6 +340,47 @@ async function tick(){
   `<p class="file">Fastest ${m.fastest_s??'–'} s · slowest ${m.slowest_s??'–'} s · ${m.errors||0} errors · updated ${esc(L.updated)}</p>`;
 }
 tick(); setInterval(tick,2000);
+// ---- glasses panel: live screen, gestures, full inbox ----
+const glimg=$('glimg'), log=[]; let busy=false, glStatus=null;
+const labels={up:'swipe up',down:'swipe down',click:'tap',double_click:'double-tap'};
+function refreshShot(){ glimg.src='/glasses.png?t='+Date.now() }
+function flash(a){ const b=document.querySelector(`.pad button[data-a="${a}"]`); if(b){b.classList.add('hit'); setTimeout(()=>b.classList.remove('hit'),180)} }
+function note(t){ log.unshift(t); log.length=Math.min(log.length,4); $('gllog').textContent=log.join(' · ') }
+async function gesture(a){
+ flash(a); note(labels[a]||a);
+ try{ await fetch('/api/gesture',{method:'POST',body:JSON.stringify({action:a})}) }catch(e){}
+ setTimeout(refreshShot,120); setTimeout(refreshShot,450); setTimeout(glTick,450);
+}
+async function openRow(i){
+ if(busy) return; busy=true; note('open row '+(i+1));
+ try{ await fetch('/api/open',{method:'POST',body:JSON.stringify({index:i})}) }catch(e){}
+ busy=false; refreshShot(); setTimeout(refreshShot,300); glTick();
+}
+document.querySelectorAll('.pad button').forEach(b=>b.addEventListener('click',()=>gesture(b.dataset.a)));
+let clickTimer=null;
+glimg.addEventListener('click',()=>{ clearTimeout(clickTimer); clickTimer=setTimeout(()=>gesture('click'),230) });
+glimg.addEventListener('dblclick',()=>{ clearTimeout(clickTimer); gesture('double_click') });
+let wheelLock=0;
+glimg.addEventListener('wheel',e=>{ e.preventDefault(); const now=Date.now(); if(now-wheelLock<250) return; wheelLock=now; gesture(e.deltaY>0?'down':'up') },{passive:false});
+document.addEventListener('keydown',e=>{
+ if(e.target.closest&&e.target.closest('input,textarea')) return;
+ const a={ArrowUp:'up',ArrowDown:'down',Enter:'click',Escape:'double_click'}[e.key];
+ if(a){ e.preventDefault(); gesture(a) }
+});
+glimg.addEventListener('error',()=>{ glimg.removeAttribute('src'); glimg.alt='Simulator not running' });
+async function glTick(){
+ try{ glStatus=await (await fetch('/api/glasses')).json() }catch(e){ return }
+ const s=glStatus, b=$('glbadge');
+ b.className='pill '+(s.simulator&&s.server?'ok':'bad');
+ b.textContent=!s.simulator?'simulator not running':!s.server?'VoiceLens server not running':'connected · live';
+ const ui=s.ui||{}, sel=s.inbox.find(i=>i.id===ui.selected_id);
+ $('glui').textContent=ui.screen?`screen: ${ui.screen}${sel?' · '+sel.chat_name+' ('+sel.kind+')':''}${ui.screen==='message'?' · page '+(ui.page+1):''}`:'screen: –';
+ $('incount').textContent=s.inbox.length;
+ $('inlist').innerHTML=!s.inbox.length?'<p class="file">No messages yet. Send a text or voice note to Saved Messages.</p>':
+  s.inbox.map((m,i)=>`<div class="inrow${m.id===ui.selected_id?' sel':''}"><div><b>${esc(m.chat_name)}</b><span class="k">${m.kind==='voice'?'voice '+Math.round(m.duration||0)+'s'+(m.source?' · '+m.source:''):'text'}</span><span class="file" style="margin-left:6px">${esc(m.received_at)}</span><p>${esc(m.text)}</p></div><button data-i="${i}">Open on glasses</button></div>`).join('');
+ document.querySelectorAll('#inlist button').forEach(b=>b.addEventListener('click',()=>openRow(+b.dataset.i)));
+}
+glTick(); setInterval(glTick,1500); setInterval(()=>{ if(glStatus&&glStatus.simulator) refreshShot() },700);
 </script></body></html>"""
 
 
@@ -319,10 +393,33 @@ class Handler(BaseHTTPRequestHandler):
             body["live"] = live_feed()
             body["commits"] = recent_commits()
             self._send(json.dumps(body).encode(), "application/json")
+        elif self.path.startswith("/glasses.png"):
+            png = _http(f"{SIM}/api/screenshot/glasses")
+            if png:
+                self._send(png, "image/png")
+            else:
+                self.send_error(503, "simulator not running")
+        elif self.path == "/api/glasses":
+            self._send(json.dumps(glasses_status()).encode(), "application/json")
         elif self.path in ("/", "/index.html"):
             self._send(PAGE.encode(), "text/html; charset=utf-8")
         else:
             self.send_error(404)
+
+    def do_POST(self):  # noqa: N802
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            body = json.loads(self.rfile.read(length) or b"{}")
+            if self.path == "/api/gesture":
+                ok = send_gesture(body.get("action", ""))
+                self._send(json.dumps({"ok": ok}).encode(), "application/json")
+            elif self.path == "/api/open":
+                steps = open_row(int(body.get("index", -1)))
+                self._send(json.dumps({"ok": True, "steps": steps}).encode(), "application/json")
+            else:
+                self.send_error(404)
+        except (ValueError, json.JSONDecodeError) as err:
+            self._send(json.dumps({"ok": False, "error": str(err)}).encode(), "application/json")
 
     def _send(self, data: bytes, ctype: str):
         self.send_response(200)
