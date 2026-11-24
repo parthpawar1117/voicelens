@@ -4,15 +4,19 @@ import {
   CreateStartUpPageContainer,
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk'
-import { classifyGesture, helloScreen, type Gesture } from './gestures'
+import { fetchInbox, SERVER_URL } from './api'
+import { classifyGesture } from './gestures'
+import { initialNav, reduce, render, type Nav } from './nav'
+import type { Item } from './screens'
 import { mountUi, setStatus, setTranscript } from './ui'
 
-// Day-1 milestone: prove the round trip glasses -> app -> glasses.
-// One text container on screen; every gesture is classified and echoed back.
-// The microphone stays off until the voice-reply feature lands.
+// Day 2: the shared inbox. Polls the VoiceLens server, shows voice notes
+// (already transcribed) and texts, and lets you open and page through them.
+// Replies (hold to speak) arrive on Day 3.
+
+const POLL_MS = 1500
 
 mountUi()
-
 const bridge = await waitForEvenAppBridge()
 
 const screen = new TextContainerProperty({
@@ -25,47 +29,53 @@ const screen = new TextContainerProperty({
   paddingLength: 8,
   containerID: 1,
   containerName: 'main',
-  content: helloScreen(null, 0),
+  content: 'VoiceLens\n\nConnecting...',
   isEventCapture: 1,
 })
-
 const created = await bridge.createStartUpPageContainer(
   new CreateStartUpPageContainer({ containerTotalNum: 1, textObject: [screen] }),
 )
-if (created !== 0) {
-  setStatus('error', `createStartUpPageContainer failed: ${created}`)
-} else {
-  setStatus('listening', 'Connected · try a gesture on the glasses')
+if (created !== 0) setStatus('error', `createStartUpPageContainer failed: ${created}`)
+
+let items: Item[] = []
+let nav: Nav = initialNav(items)
+let shown = ''
+let online = false
+
+async function draw() {
+  const content = online ? render(nav, items) : `VoiceLens\n\nCan't reach the VoiceLens server\n${SERVER_URL}\n\nStart it: server/run.py`
+  if (content === shown) return
+  shown = content
+  setTranscript(content, '')
+  await bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 1, containerName: 'main', content }))
 }
 
-let gestureCount = 0
-
-async function render(last: Gesture) {
-  const content = helloScreen(last, gestureCount)
-  setTranscript(content, '')
-  await bridge.textContainerUpgrade(
-    new TextContainerUpgrade({ containerID: 1, containerName: 'main', content }),
-  )
+async function poll() {
+  const latest = await fetchInbox(SERVER_URL)
+  online = latest !== null
+  setStatus(online ? 'listening' : 'error', online ? `Connected · ${latest!.length} messages` : `Server offline: ${SERVER_URL}`)
+  if (latest) {
+    const wasEmpty = items.length === 0
+    items = latest
+    if (wasEmpty && nav.selectedId === null) nav = initialNav(items)
+  }
+  await draw()
 }
 
 const unsubscribe = bridge.onEvenHubEvent(event => {
   const gesture = classifyGesture(event)
   if (gesture === null) return
-
-  console.log('[VoiceLens] gesture', gesture)
-
-  if (gesture === 'double_tap') {
-    // Always leave an exit: the system shows its own confirmation dialog.
+  if (gesture === 'exit') { unsubscribe(); return }
+  nav = reduce(nav, gesture, items)
+  if (nav.screen === 'exit') {
+    // The system shows its own confirmation dialog.
     bridge.shutDownPageContainer(1)
+    nav = { ...nav, screen: 'inbox' }
     return
   }
-  if (gesture === 'exit') {
-    unsubscribe()
-    return
-  }
-
-  gestureCount += 1
-  void render(gesture)
+  void draw()
 })
 
-window.addEventListener('beforeunload', () => unsubscribe())
+await poll()
+const timer = window.setInterval(() => void poll(), POLL_MS)
+window.addEventListener('beforeunload', () => { window.clearInterval(timer); unsubscribe() })
