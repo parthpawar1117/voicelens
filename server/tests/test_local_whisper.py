@@ -130,3 +130,37 @@ def test_falls_back_to_cpu_when_gpu_model_fails_to_load():
     model, device = load_model("small", cuda_devices=1, whisper_cls=fake_whisper)
     assert (model, device) == ("model-cpu", "cpu")
     assert calls == ["cuda", "cpu"]
+
+
+async def test_keep_alive_pings_the_model_until_stopped():
+    # After ~20 s idle the GPU clocks down and the next note took 1.36 s instead
+    # of 0.28 s; a tiny inference every 2 s brought it to 0.46 s.
+    import asyncio
+    model = FakeModel([])
+    engine = make(model)
+    stop = asyncio.Event()
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) == 3:
+            stop.set()
+
+    await engine.keep_alive(interval=2.0, stop=stop, sleep=fake_sleep)
+    assert len(model.inputs) == 3
+    assert sleeps == [2.0, 2.0, 2.0]
+    assert all(len(audio) <= 1600 for audio, _ in model.inputs)  # tiny: 0.1 s
+
+
+async def test_keep_alive_skips_a_ping_while_a_real_note_is_running():
+    import asyncio
+    model = FakeModel([])
+    engine = make(model)
+    engine._busy = 1  # a real transcription is in progress
+    stop = asyncio.Event()
+
+    async def fake_sleep(seconds):
+        stop.set()
+
+    await engine.keep_alive(interval=2.0, stop=stop, sleep=fake_sleep)
+    assert model.inputs == []
