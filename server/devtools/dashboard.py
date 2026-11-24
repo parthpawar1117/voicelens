@@ -29,6 +29,9 @@ TMP = SERVER / "tmp"
 WATCH = [APP / "src", SERVER / "voicelens", SERVER / "tests", SERVER / "devtools"]
 PORT = 8800
 
+sys.path.insert(0, str(SERVER))
+from devtools.demo_friend import DemoFriend, make_bot_api, to_ogg_opus  # noqa: E402
+
 
 # ---------- glasses controls (tested) ----------
 # The dashboard drives the Even Hub simulator through its automation API and
@@ -295,6 +298,17 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
 .rbchoices button{background:#262a26;color:#e6e6e6;border:1px solid #3a3f3a;border-radius:8px;padding:12px 10px;font:600 14px system-ui;cursor:pointer}
 .rbchoices button.cur{background:#3cfa44;color:#0b0f0b;border-color:#3cfa44}
 .rbchoices button:hover{border-color:#3cfa44}.rbchoices .cancel:hover{border-color:#ff5a4f;color:#ff5a4f}
+.frchat{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow:auto;padding:4px 2px 10px}
+.bub{max-width:75%;padding:8px 12px;border-radius:12px;font-size:14px;white-space:pre-wrap;word-break:break-word}
+.bub.friend{align-self:flex-start;background:#262a26;border:1px solid #3a3f3a}
+.bub.you{align-self:flex-end;background:rgba(60,250,68,.12);border:1px solid #3cfa44}
+.bub small{display:block;font-size:11px;color:#9a9a9a;margin-bottom:3px}
+.bub audio{display:block;margin-top:6px;max-width:100%}
+.frsend{display:grid;grid-template-columns:1fr auto;gap:8px}
+.frsend input{background:#141614;border:1px solid #3a3f3a;color:#e6e6e6;border-radius:8px;padding:10px 12px;font:14px system-ui;min-width:0}
+.frsend input:focus{outline:none;border-color:#3cfa44}
+.frsend #frtextbtn{background:#262a26;color:#e6e6e6;border:1px solid #3a3f3a;border-radius:8px;padding:10px 14px;font:600 14px system-ui;cursor:pointer}
+.frsend #frvoicebtn{grid-column:1 / -1}
 .mini{background:none;border:1px solid #3a3f3a;color:#9a9a9a;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
 .mini:hover{border-color:#3cfa44;color:#3cfa44}
 .hold:hover{border-color:#3cfa44}.hold.on{background:#ff5a4f;border-color:#ff5a4f;color:#fff}.hold.on small{color:#fff}
@@ -333,6 +347,16 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
   <div class="glmeta"><span>Screen blank or stuck?</span><button id="restartbtn" class="mini">↻ Restart glasses app</button></div>
  </div>
  <div class="glcard"><b style="font-size:13px;color:#9a9a9a">FULL INBOX · newest first · <span id="incount">0</span></b><div id="inlist"></div></div>
+</div>
+<h2>📱 <span id="frname">Demo friend</span>'s phone <span id="frbadge" class="pill">checking…</span></h2>
+<div class="glcard" style="margin-top:14px">
+ <p class="file" id="frhelp" style="margin:0 0 10px">Plays the person who messages you, so a demo video shows two sides.</p>
+ <div id="frchat" class="frchat"></div>
+ <div class="frsend">
+  <input id="frtext" type="text" placeholder="Type what your friend says, e.g. Where are you? Dinner is ready." autocomplete="off">
+  <button id="frtextbtn">Send text</button>
+  <button id="frvoicebtn" class="hold" style="margin:0">🎤 Hold to record their voice note</button>
+ </div>
 </div>
 <h2>Live transcription <span id="livebadge" class="pill">listener not running</span></h2>
 <div class="stats">
@@ -421,6 +445,56 @@ function holdEnd(){ if(!holding) return; holding=false; holdBtn.classList.remove
 holdBtn.addEventListener('pointerdown',e=>{ e.preventDefault(); holdBtn.setPointerCapture(e.pointerId); holdStart() });
 holdBtn.addEventListener('pointerup',holdEnd); holdBtn.addEventListener('pointercancel',holdEnd);
 window.addEventListener('blur',holdEnd);
+// ---- demo friend: type or record what the friend says; see your replies ----
+let frCount=-1, frPlaying=new Set();
+async function frTick(){
+ let f; try{ f=await (await fetch('/api/friend')).json() }catch(e){ return }
+ const b=$('frbadge'); $('frname').textContent=f.name||'Demo friend';
+ if(!f.enabled){ b.className='pill'; b.textContent='not set up'; $('frhelp').textContent='To use: create a bot with @BotFather, add TELEGRAM_DEMO_BOT_TOKEN to server/.env, restart the dashboard.'; return }
+ b.className='pill '+(f.ready?'ok':'run'); b.textContent=f.ready?'connected':'open the bot in Telegram and press Start';
+ if(f.conversation.length===frCount) return; frCount=f.conversation.length;
+ const box=$('frchat');
+ box.innerHTML=!f.conversation.length?'<p class="file">No messages yet. Type below or hold the button to record.</p>':
+  f.conversation.map(m=>{
+   const who=m.from==='friend'?(f.name||'Friend'):'You · replied from G2 glasses';
+   const body=m.kind==='voice'?(m.file_id?`🎤 voice note${m.duration?' · '+m.duration+'s':''}<audio controls preload="none" src="/api/friend/audio?file_id=${encodeURIComponent(m.file_id)}"></audio>`:'🎤 voice note'):esc(m.text);
+   return `<div class="bub ${m.from==='friend'?'friend':'you'}"><small>${esc(who)}</small>${body}</div>`}).join('');
+ box.scrollTop=box.scrollHeight;
+}
+async function frSendText(){
+ const i=$('frtext'), t=i.value.trim(); if(!t) return;
+ i.value=''; note('friend: text');
+ const r=await (await fetch('/api/friend/text',{method:'POST',body:JSON.stringify({text:t})})).json();
+ if(!r.ok){ alertLine(r.error) } frCount=-1; frTick();
+}
+function alertLine(msg){ $('frhelp').textContent='⚠ '+msg }
+$('frtextbtn').addEventListener('click',frSendText);
+$('frtext').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); frSendText() } });
+// Hold to record the friend's voice note in the browser (localhost may use the mic).
+let rec=null, recChunks=[];
+const vb=$('frvoicebtn');
+async function frRecStart(){
+ if(rec) return;
+ try{
+  const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  recChunks=[]; rec=new MediaRecorder(stream,{mimeType:'audio/webm;codecs=opus'});
+  rec.ondataavailable=e=>{ if(e.data.size) recChunks.push(e.data) };
+  rec.onstop=async()=>{
+   stream.getTracks().forEach(t=>t.stop());
+   const blob=new Blob(recChunks,{type:'audio/webm'}); rec=null;
+   if(blob.size<1000){ alertLine('Too short. Hold the button while speaking.'); return }
+   vb.firstChild.textContent='Sending…';
+   const r=await (await fetch('/api/friend/voice',{method:'POST',body:blob})).json();
+   vb.firstChild.textContent='🎤 Hold to record their voice note';
+   if(!r.ok) alertLine(r.error); frCount=-1; frTick();
+  };
+  rec.start(); vb.classList.add('on'); vb.firstChild.textContent='● Recording friend… release to send';
+ }catch(e){ alertLine('Microphone blocked: allow it in the address bar, then try again.') }
+}
+function frRecStop(){ if(rec&&rec.state==='recording'){ rec.stop(); vb.classList.remove('on') } }
+vb.addEventListener('pointerdown',e=>{ e.preventDefault(); vb.setPointerCapture(e.pointerId); frRecStart() });
+vb.addEventListener('pointerup',frRecStop); vb.addEventListener('pointercancel',frRecStop);
+frTick(); setInterval(frTick,1500);
 document.addEventListener('keydown',e=>{
  if(e.target.closest&&e.target.closest('input,textarea')) return;
  if(e.code==='Space'){ e.preventDefault(); if(!e.repeat) holdStart(); return }
@@ -484,6 +558,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(503, "simulator not running")
         elif self.path == "/api/glasses":
             self._send(json.dumps(glasses_status()).encode(), "application/json")
+        elif self.path == "/api/friend":
+            body = {"enabled": FRIEND is not None, "name": FRIEND_NAME,
+                    "ready": bool(FRIEND and FRIEND.chat_id), "conversation": FRIEND.conversation if FRIEND else []}
+            self._send(json.dumps(body).encode(), "application/json")
+        elif self.path.startswith("/api/friend/audio?file_id=") and FRIEND:
+            try:
+                self._send(FRIEND.file_bytes(FRIEND_TOKEN, self.path.split("=", 1)[1]), "audio/ogg")
+            except Exception:
+                self.send_error(502, "could not fetch the voice note from Telegram")
         elif self.path in ("/", "/index.html"):
             self._send(PAGE.encode(), "text/html; charset=utf-8")
         else:
@@ -491,8 +574,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length)
+        if self.path == "/api/friend/voice":  # raw browser recording, not JSON
+            return self._friend(lambda f: f.send_voice(to_ogg_opus(raw)))
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(raw or b"{}")
+            if self.path == "/api/friend/text":
+                return self._friend(lambda f: f.send_text(str(body.get("text", "")).strip() or "..."))
             if self.path == "/api/gesture":
                 ok = send_gesture(body.get("action", ""))
                 self._send(json.dumps({"ok": ok}).encode(), "application/json")
@@ -506,6 +594,15 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError) as err:
             self._send(json.dumps({"ok": False, "error": str(err)}).encode(), "application/json")
 
+    def _friend(self, action) -> None:
+        if FRIEND is None:
+            return self._send(json.dumps({"ok": False, "error": "Add TELEGRAM_DEMO_BOT_TOKEN to server/.env and restart the dashboard"}).encode(), "application/json")
+        try:
+            action(FRIEND)
+            self._send(json.dumps({"ok": True}).encode(), "application/json")
+        except Exception as err:  # show bot errors in the panel instead of crashing
+            self._send(json.dumps({"ok": False, "error": str(err)}).encode(), "application/json")
+
     def _send(self, data: bytes, ctype: str):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
@@ -517,7 +614,52 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+# ---------- demo friend (optional bot that plays the person messaging you) ----------
+
+FRIEND = None
+FRIEND_NAME = None
+FRIEND_TOKEN = None
+FRIEND_STATE = TMP / "demo_friend.json"  # remembers your chat id after you press Start
+
+
+def start_demo_friend() -> None:
+    global FRIEND, FRIEND_NAME, FRIEND_TOKEN
+    import os
+
+    from dotenv import load_dotenv
+
+    load_dotenv(SERVER / ".env")
+    FRIEND_TOKEN = os.getenv("TELEGRAM_DEMO_BOT_TOKEN") or None
+    if not FRIEND_TOKEN:
+        return
+    try:
+        chat_id = json.loads(FRIEND_STATE.read_text(encoding="utf-8")).get("chat_id")
+    except (OSError, json.JSONDecodeError):
+        chat_id = None
+    api = make_bot_api(FRIEND_TOKEN)
+    FRIEND = DemoFriend(api, chat_id)
+    try:
+        FRIEND_NAME = api("getMe", timeout=10)["result"].get("first_name")
+    except Exception:
+        FRIEND_NAME = "Demo friend"
+
+    def poll_forever():
+        while True:
+            try:
+                before = FRIEND.chat_id
+                FRIEND.poll_once()
+                if FRIEND.chat_id and FRIEND.chat_id != before:
+                    TMP.mkdir(exist_ok=True)
+                    FRIEND_STATE.write_text(json.dumps({"chat_id": FRIEND.chat_id}), encoding="utf-8")
+            except Exception:
+                time.sleep(3)  # network blip: retry
+
+    threading.Thread(target=poll_forever, daemon=True).start()
+    print(f"Demo friend bot '{FRIEND_NAME}' is running.")
+
+
 def main() -> None:
+    start_demo_friend()
     threading.Thread(target=watch_forever, daemon=True).start()
     print(f"VoiceLens dashboard on http://127.0.0.1:{PORT}  (Ctrl+C to stop)")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
