@@ -95,3 +95,10 @@ describe('quick reply preview', () => {
     expect(render(s, items, quick)).toContain('> v VOICE NOTE')
   })
 })
+
+describe('error screen', () => {
+  it('starts the message with a capital letter', () => {
+    const s = reduce({ screen: 'thinking', selectedId: 10, page: 0 }, { type: 'error', message: 'that quick reply no longer exists' }, items, quick)
+    expect(render(s, items, quick)).toContain('That quick reply no longer exists')
+  })
+})

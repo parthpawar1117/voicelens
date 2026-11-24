@@ -194,7 +194,10 @@ export function render(s: Nav, items: Item[], quick: QuickReply[] = []): string 
     case 'sent':
       return [`Sent to ${to}`, '', `as ${formatName(s.reply?.format ?? 'text')}`, '', 'Back to inbox...'].join('\n')
     case 'error':
-      return ['Reply not sent', '', ...wrap(s.error ?? 'Something went wrong', LINE_CHARS).slice(0, 4), '', 'tap: back to message'].join('\n')
+    {
+      const why = (s.error ?? 'Something went wrong').replace(/^./, c => c.toUpperCase())
+      return ['Reply not sent', '', ...wrap(why, LINE_CHARS).slice(0, 4), '', 'tap: back to message'].join('\n')
+    }
   }
   return inboxScreen(items, s.selectedId)
 }
