@@ -5,7 +5,7 @@ import {
   CreateStartUpPageContainer,
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk'
-import { cancelReply, fetchInbox, prepareReply, reportUiState, sendReply, SERVER_URL } from './api'
+import { cancelReply, fetchInbox, fetchQuickReplies, prepareQuick, prepareReply, reportUiState, sendReply, SERVER_URL, type QuickReply } from './api'
 import { classifyGesture, type Gesture } from './gestures'
 import { initialNav, reduce, render, type AppEvent, type Nav } from './nav'
 import type { Item } from './screens'
@@ -39,6 +39,7 @@ const created = await bridge.createStartUpPageContainer(
 if (created !== 0) setStatus('error', `createStartUpPageContainer failed: ${created}`)
 
 let items: Item[] = []
+let quick: QuickReply[] = []
 let nav: Nav = initialNav(items)
 let shown = ''
 let online = false
@@ -47,7 +48,7 @@ let ticker: number | null = null
 
 async function draw() {
   void reportUiState(SERVER_URL, nav)
-  const content = online ? render(nav, items) : `VoiceLens\n\nCan't reach the VoiceLens server\n${SERVER_URL}\n\nStart it: server/run.py`
+  const content = online ? render(nav, items, quick) : `VoiceLens\n\nCan't reach the VoiceLens server\n${SERVER_URL}\n\nStart it: server/run.py`
   if (content === shown) return
   shown = content
   setTranscript(content, '')
@@ -68,6 +69,15 @@ async function onTransition(prev: Nav, next: Nav) {
   }
   if (prev.screen === 'recording') {
     await bridge.audioControl(false)
+  }
+  if (next.screen === 'thinking' && next.quickId && next.selectedId !== null) {
+    // A saved quick reply: no microphone, just ask the server for a draft.
+    const result = await prepareQuick(SERVER_URL, next.selectedId, next.quickId)
+    dispatch(result.ok ? { type: 'draft', draft: result.draft } : { type: 'error', message: result.message })
+  }
+  if (next.screen === 'quick') {
+    const latest = await fetchQuickReplies(SERVER_URL) // fresh list each time it opens
+    if (latest) { quick = latest; void draw() }
   }
   if (prev.screen === 'recording' && next.screen === 'thinking' && next.selectedId !== null) {
     const result = await prepareReply(SERVER_URL, next.selectedId, chunks)
@@ -93,7 +103,7 @@ async function onTransition(prev: Nav, next: Nav) {
 
 function dispatch(input: Gesture | AppEvent) {
   const prev = nav
-  nav = reduce(nav, input, items)
+  nav = reduce(nav, input, items, quick)
   if (nav.screen === 'exit') {
     bridge.shutDownPageContainer(1) // the system shows its own confirmation dialog
     nav = { ...nav, screen: 'inbox' }
@@ -106,6 +116,10 @@ async function poll() {
   const latest = await fetchInbox(SERVER_URL)
   online = latest !== null
   setStatus(online ? 'listening' : 'error', online ? `Connected · ${latest!.length} messages` : `Server offline: ${SERVER_URL}`)
+  if (online && quick.length === 0) {
+    const q = await fetchQuickReplies(SERVER_URL)
+    if (q) quick = q
+  }
   if (latest) {
     const wasEmpty = items.length === 0
     items = latest
