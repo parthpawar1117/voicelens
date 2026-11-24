@@ -83,3 +83,30 @@ def test_empty_browser_recording_is_rejected():
     from devtools.demo_friend import to_ogg_opus
     with pytest.raises(ValueError):
         to_ogg_opus(b"")
+
+
+def test_token_with_a_space_inside_is_rejected_without_showing_it():
+    from devtools.demo_friend import clean_token
+    with pytest.raises(ValueError) as err:
+        clean_token("123456:ABC def")
+    assert "ABC" not in str(err.value) and "def" not in str(err.value)
+
+
+def test_token_surrounding_spaces_and_quotes_are_trimmed():
+    from devtools.demo_friend import clean_token
+    assert clean_token('  "123456:ABCdef"  ') == "123456:ABCdef"
+
+
+def test_bot_api_errors_never_include_the_token(monkeypatch):
+    import urllib.request
+    from devtools.demo_friend import BotApiError, make_bot_api
+
+    def boom(req, timeout=0):
+        raise OSError(f"failed for {req.full_url}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    api = make_bot_api("123456:SECRETTOKEN")
+    with pytest.raises(BotApiError) as err:
+        api("getMe")
+    assert "SECRETTOKEN" not in str(err.value)
+    assert "getMe" in str(err.value)
