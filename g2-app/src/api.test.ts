@@ -83,3 +83,12 @@ describe('reportUiState for reply screens', () => {
     expect(JSON.parse(fake.mock.calls[0][1].body).screen).toBe('recording')
   })
 })
+
+describe('reportUiState with a reply in progress', () => {
+  it('includes the reply format, countdown and text', async () => {
+    const { reportUiState } = await import('./api')
+    const fake = vi.fn().mockResolvedValue({ ok: true })
+    await reportUiState('http://x', { screen: 'confirm', selectedId: 1, page: 0, reply: { draftId: 'd', text: 'On my way', format: 'voice', chatName: 'Mom', countdown: 4 } }, fake as unknown as typeof fetch)
+    expect(JSON.parse(fake.mock.calls[0][1].body)).toEqual({ screen: 'confirm', selected_id: 1, page: 0, reply_format: 'voice', countdown: 4, reply_text: 'On my way' })
+  })
+})
