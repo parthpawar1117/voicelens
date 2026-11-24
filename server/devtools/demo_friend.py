@@ -41,6 +41,26 @@ def clean_token(raw: str) -> str:
     return token
 
 
+def extract_token(text: str, bot_id: int) -> str | None:
+    """Find this bot's token in a @BotFather message (tokens start with the bot id)."""
+    import re
+
+    m = re.search(rf"\b{bot_id}:[A-Za-z0-9_-]{{30,}}", text or "")
+    return m.group(0) if m else None
+
+
+def set_env_value(env_text: str, key: str, value: str) -> str:
+    """Replace one KEY=... line in .env text (or append it), keeping all others."""
+    lines = env_text.splitlines()
+    for i, line in enumerate(lines):
+        if line.split("=", 1)[0].strip() == key:
+            lines[i] = f"{key}={value}"
+            break
+    else:
+        lines.append(f"{key}={value}")
+    return "\n".join(lines) + "\n"
+
+
 def bot_id_from_token(token: str) -> int:
     head = token.split(":", 1)[0]
     if ":" not in token or not head.isdigit():
