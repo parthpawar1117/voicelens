@@ -31,10 +31,11 @@ describe('inboxScreen', () => {
 
   it('marks the selected row and labels voice notes and texts without emoji', () => {
     const s = inboxScreen([voice, text], 2)
-    expect(s).toContain('> Rahul')
-    expect(s).toContain('voice 0:06')
-    expect(s).toContain('  Mom')
-    expect(s).toContain('text')
+    expect(s).toContain('> Rahul | voice 0:06 | 21:05')
+    expect(s).toContain('  Mom | text | 21:01')
+    // No space-padded columns: the G2 font is proportional, so they never line up.
+    for (const line of s.split('
+')) expect(line.trimStart()).not.toMatch(/\S {2,}\S/)
     expect(s).not.toMatch(/\p{Extended_Pictographic}/u)
     fits(s)
   })

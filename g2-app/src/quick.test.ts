@@ -25,7 +25,8 @@ describe('opening quick replies', () => {
     const screen = render(s, items, quick)
     expect(screen).toContain('> (o) Speak a reply')
     expect(screen).toContain('On my way')
-    expect(screen).toContain('voice 1.2s')
+    expect(screen).toContain('On my way (voice)')
+    expect(screen).not.toMatch(/\S {2,}\S/) // no space-padding: the G2 font is proportional, columns never line up
     fits(screen)
   })
 
