@@ -1,0 +1,8 @@
+fastapi==0.115.*
+uvicorn[standard]==0.32.*
+telethon==1.38.*
+python-dotenv==1.0.*
+imageio-ffmpeg==0.5.*
+pytest==8.3.*
+pytest-asyncio==0.24.*
+httpx==0.28.*
