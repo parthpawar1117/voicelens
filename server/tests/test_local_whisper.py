@@ -70,3 +70,16 @@ def test_decoder_turns_an_ogg_opus_file_into_16k_float_samples(tmp_path):
     assert samples.dtype == np.float32
     assert 15000 < len(samples) < 17000
     assert 0 < np.abs(samples).max() <= 1.0
+
+
+async def test_translates_to_english_so_hindi_shows_in_latin_letters():
+    # G2 has one firmware font and drops unsupported characters; Whisper writes
+    # Hindi in Devanagari. Translate mode always yields English (Latin script).
+    model = FakeModel(["Bring the laptop"])
+    await make(model)("/tmp/a.ogg")
+    assert model.inputs[0][1].get("task") == "translate"
+
+
+def test_default_model_is_small_for_better_hinglish():
+    from voicelens.local_whisper import DEFAULT_MODEL
+    assert DEFAULT_MODEL == "small"
