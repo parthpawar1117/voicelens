@@ -15,7 +15,7 @@ from voicelens.reply import DraftNotFound, NotAllowed, ReplyService
 
 
 class UiState(BaseModel):
-    screen: Literal["inbox", "message", "recording", "confirm"] | None = None
+    screen: Literal["inbox", "message", "recording", "thinking", "confirm", "sending", "sent", "error"] | None = None
     selected_id: int | None = None
     page: int = 0
 

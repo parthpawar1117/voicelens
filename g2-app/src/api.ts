@@ -65,7 +65,7 @@ export async function reportUiState(
   nav: { screen: string; selectedId: number | null; page: number },
   fetchFn: typeof fetch = fetch,
 ): Promise<void> {
-  if (nav.screen !== 'inbox' && nav.screen !== 'message') return
+  if (nav.screen === 'exit') return
   try {
     await fetchFn(`${base}/ui-state`, {
       method: 'POST',
