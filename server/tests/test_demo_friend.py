@@ -94,7 +94,8 @@ def test_token_with_a_space_inside_is_rejected_without_showing_it():
 
 def test_token_surrounding_spaces_and_quotes_are_trimmed():
     from devtools.demo_friend import clean_token
-    assert clean_token('  "123456:ABCdef"  ') == "123456:ABCdef"
+    fake = "123456:" + "A" * 35  # real tokens have ~35 chars after the colon
+    assert clean_token(f'  "{fake}"  ') == fake
 
 
 def test_bot_api_errors_never_include_the_token(monkeypatch):

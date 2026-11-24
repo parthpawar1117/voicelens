@@ -14,12 +14,31 @@ import json
 import mimetypes
 import threading
 import uuid
+import urllib.error
 import urllib.request
 from typing import Callable
 
 API = "https://api.telegram.org"
 
 BotCall = Callable[..., dict]
+
+
+class BotApiError(RuntimeError):
+    """A Bot API call failed. The message never contains the token."""
+
+
+def clean_token(raw: str) -> str:
+    """Trim spaces/quotes around a pasted token and check its shape.
+
+    Errors describe the problem without echoing the token (it is a secret).
+    """
+    token = (raw or "").strip().strip("'\"").strip()
+    if any(c.isspace() for c in token):
+        raise ValueError("The bot token contains a space (a copy-paste break). Copy it again from @BotFather.")
+    head, _, tail = token.partition(":")
+    if not head.isdigit() or len(tail) < 20:
+        raise ValueError("That doesn't look like a bot token (expected digits, a colon, then a long code).")
+    return token
 
 
 def bot_id_from_token(token: str) -> int:
@@ -86,8 +105,17 @@ def make_bot_api(token: str) -> BotCall:
         else:
             req = urllib.request.Request(url, data=json.dumps(data or {}).encode(),
                                          headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read())
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as err:
+            try:
+                why = json.loads(err.read()).get("description", "")
+            except Exception:
+                why = ""
+            raise BotApiError(f"Bot API {method} failed: HTTP {err.code} {why}".strip()) from None
+        except Exception as err:  # the URL (with the token) must not leak into messages
+            raise BotApiError(f"Bot API {method} failed: {type(err).__name__}") from None
 
     return call
 
@@ -125,8 +153,11 @@ class DemoFriend:
 
     def file_bytes(self, token: str, file_id: str) -> bytes:
         path = self.api("getFile", {"file_id": file_id})["result"]["file_path"]
-        with urllib.request.urlopen(f"{API}/file/bot{token}/{path}", timeout=20) as r:
-            return r.read()
+        try:
+            with urllib.request.urlopen(f"{API}/file/bot{token}/{path}", timeout=20) as r:
+                return r.read()
+        except Exception as err:  # never let the token-bearing URL into the message
+            raise BotApiError(f"Downloading the voice note failed: {type(err).__name__}") from None
 
     def _log(self, entry: dict) -> None:
         with self._lock:

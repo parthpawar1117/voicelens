@@ -30,7 +30,7 @@ WATCH = [APP / "src", SERVER / "voicelens", SERVER / "tests", SERVER / "devtools
 PORT = 8800
 
 sys.path.insert(0, str(SERVER))
-from devtools.demo_friend import DemoFriend, make_bot_api, to_ogg_opus  # noqa: E402
+from devtools.demo_friend import DemoFriend, clean_token, make_bot_api, to_ogg_opus  # noqa: E402
 
 
 # ---------- glasses controls (tested) ----------
@@ -648,8 +648,13 @@ def start_demo_friend() -> None:
     from dotenv import load_dotenv
 
     load_dotenv(SERVER / ".env")
-    FRIEND_TOKEN = os.getenv("TELEGRAM_DEMO_BOT_TOKEN") or None
-    if not FRIEND_TOKEN:
+    raw = os.getenv("TELEGRAM_DEMO_BOT_TOKEN") or ""
+    if not raw.strip():
+        return
+    try:
+        FRIEND_TOKEN = clean_token(raw)
+    except ValueError as err:
+        print(f"Demo friend bot disabled: {err}")  # never prints the token
         return
     try:
         chat_id = json.loads(FRIEND_STATE.read_text(encoding="utf-8")).get("chat_id")
