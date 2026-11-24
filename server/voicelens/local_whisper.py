@@ -1,8 +1,11 @@
 """Local Whisper engine (faster-whisper) for users without Telegram Premium.
 
 Runs on the user's own machine: audio is not sent to any third-party service.
-The model is loaded on first use (download ~145 MB for "base" on first run) and
-kept in memory. Language is auto-detected so Hindi/Hinglish notes work.
+The model is loaded on first use (download ~480 MB for "small" on first run) and
+kept in memory. Language is auto-detected and the output is translated to
+English, because the G2 firmware font may drop Devanagari characters. On real
+notes, "small" + translate turned Hinglish into accurate English; English
+notes come out unchanged.
 
 Audio is decoded with the ffmpeg bundled by imageio-ffmpeg, not PyAV: current
 PyAV releases dropped an option faster-whisper 1.1 passes to av.open().
@@ -18,7 +21,7 @@ from typing import Callable
 import imageio_ffmpeg
 import numpy as np
 
-DEFAULT_MODEL = "base"
+DEFAULT_MODEL = "small"
 SAMPLE_RATE = 16_000
 
 
@@ -35,7 +38,7 @@ def decode_to_16k_mono(audio_path: str) -> np.ndarray:
 def _default_factory(model_size: str = DEFAULT_MODEL):
     from faster_whisper import WhisperModel  # heavy import, only when needed
 
-    # int8 on CPU keeps memory near 0.5 GB for "base".
+    # int8 on CPU keeps memory near 1 GB for "small".
     return WhisperModel(model_size, device="cpu", compute_type="int8")
 
 
@@ -59,7 +62,7 @@ class LocalWhisper:
     def _transcribe_sync(self, audio_path: str) -> str:
         audio = self._decode(audio_path)
         segments, _info = self._get_model().transcribe(
-            audio, language=None, beam_size=1, vad_filter=True,
+            audio, language=None, task="translate", beam_size=1, vad_filter=True,
         )
         return " ".join(s.text.strip() for s in segments).strip()
 
