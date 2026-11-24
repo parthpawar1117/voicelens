@@ -54,6 +54,12 @@ async def backfill(history, inbox, *, chat_name: str, transcribe: Transcriber) -
     return added
 
 
+def should_show(message, my_id: int) -> bool:
+    """Show what others send you. Your own messages only in Saved Messages,
+    where testing happens; in a friend's chat your replies aren't incoming."""
+    return not getattr(message, "out", False) or message.chat_id == my_id
+
+
 def is_watched(chat_id: int, watched: set[int]) -> bool:
     return chat_id in watched
 

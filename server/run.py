@@ -27,7 +27,7 @@ from voicelens.app import create_app  # noqa: E402
 from voicelens.config import SERVER_DIR, load_settings  # noqa: E402
 from voicelens.hybrid import transcribe_hybrid  # noqa: E402
 from voicelens.inbox import Inbox  # noqa: E402
-from voicelens.ingest import backfill, is_watched, load_watched, to_inbox_item  # noqa: E402
+from voicelens.ingest import backfill, is_watched, load_watched, should_show, to_inbox_item  # noqa: E402
 from voicelens.local_whisper import LocalWhisper  # noqa: E402
 from voicelens.reply import ReplyService  # noqa: E402
 from devtools.demo_friend import bot_id_from_token  # noqa: E402
@@ -88,14 +88,15 @@ async def main() -> None:
         # Load recent history so the inbox isn't empty after a restart.
         for chat_id in watched:
             chat = await client.get_entity(chat_id)
-            history = [m async for m in client.iter_messages(chat_id, limit=BACKFILL_PER_CHAT)]
+            history = [m async for m in client.iter_messages(chat_id, limit=BACKFILL_PER_CHAT)
+                       if should_show(m, me.id)]
             added = await backfill(history, inbox, chat_name=chat_title(chat, me.id), transcribe=transcribe)
             print(f"Loaded {added} recent message(s) from {chat_title(chat, me.id)}.")
 
         @client.on(events.NewMessage())
         async def on_message(event):
             message = event.message
-            if not is_watched(message.chat_id, watched):
+            if not is_watched(message.chat_id, watched) or not should_show(message, me.id):
                 return
             chat = await event.get_chat()
             try:
