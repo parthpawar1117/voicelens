@@ -17,6 +17,7 @@ class Settings:
     api_hash: str
     session_path: Path
     port: int
+    demo_bot_token: str | None = None  # optional demo-friend bot
 
 
 class MissingSettingError(RuntimeError):
@@ -38,4 +39,5 @@ def load_settings() -> Settings:
         api_hash=api_hash,
         session_path=SERVER_DIR / session_name,
         port=int(os.getenv("SERVER_PORT", "8787")),
+        demo_bot_token=os.getenv("TELEGRAM_DEMO_BOT_TOKEN") or None,
     )

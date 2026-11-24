@@ -30,6 +30,7 @@ from voicelens.inbox import Inbox  # noqa: E402
 from voicelens.ingest import backfill, is_watched, load_watched, to_inbox_item  # noqa: E402
 from voicelens.local_whisper import LocalWhisper  # noqa: E402
 from voicelens.reply import ReplyService  # noqa: E402
+from devtools.demo_friend import bot_id_from_token  # noqa: E402
 from voicelens.transcribe import transcribe_voice_note  # noqa: E402
 
 TMP = SERVER_DIR / "tmp"
@@ -60,7 +61,11 @@ async def main() -> None:
 
     async with TelegramClient(str(settings.session_path), settings.api_id, settings.api_hash) as client:
         me = await client.get_me()
-        watched = load_watched(SERVER_DIR / "watched_chats.json", my_id=me.id)
+        extra = set()
+        if settings.demo_bot_token:  # demo videos: the bot plays "the friend"
+            extra.add(bot_id_from_token(settings.demo_bot_token))
+            print("Demo friend bot chat is watched.")
+        watched = load_watched(SERVER_DIR / "watched_chats.json", my_id=me.id, extra=extra)
         print(f"Watching {len(watched)} chat(s).")
 
         async def transcribe(message):

@@ -58,14 +58,15 @@ def is_watched(chat_id: int, watched: set[int]) -> bool:
     return chat_id in watched
 
 
-def load_watched(path: Path, my_id: int) -> set[int]:
+def load_watched(path: Path, my_id: int, extra: set[int] | frozenset[int] = frozenset()) -> set[int]:
     """Chat ids to watch from a JSON file {"chats": [id, ..., "me"]}.
 
     "me" means your Saved Messages. Without a file, only Saved Messages is
-    watched, which is safe for testing. A phone page will edit this file later.
+    watched, which is safe for testing. `extra` adds chats such as the demo-friend
+    bot. A phone page will edit this file later.
     """
     try:
         chats = json.loads(Path(path).read_text(encoding="utf-8")).get("chats", [])
     except (OSError, json.JSONDecodeError):
         chats = ["me"]
-    return {my_id if c == "me" else int(c) for c in chats}
+    return {my_id if c == "me" else int(c) for c in chats} | set(extra)
