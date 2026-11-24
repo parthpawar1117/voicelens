@@ -85,13 +85,22 @@ async def main() -> None:
             finally:
                 path.unlink(missing_ok=True)
 
+        # Telethon can only open chats it has seen. Loading the chat list first
+        # lets it find e.g. the demo bot (crashed with "Could not find the input
+        # entity" before).
+        await client.get_dialogs()
+
         # Load recent history so the inbox isn't empty after a restart.
         for chat_id in watched:
-            chat = await client.get_entity(chat_id)
-            history = [m async for m in client.iter_messages(chat_id, limit=BACKFILL_PER_CHAT)
-                       if should_show(m, me.id)]
-            added = await backfill(history, inbox, chat_name=chat_title(chat, me.id), transcribe=transcribe)
-            print(f"Loaded {added} recent message(s) from {chat_title(chat, me.id)}.")
+            try:
+                chat = await client.get_entity(chat_id)
+                history = [m async for m in client.iter_messages(chat_id, limit=BACKFILL_PER_CHAT)
+                           if should_show(m, me.id)]
+                added = await backfill(history, inbox, chat_name=chat_title(chat, me.id), transcribe=transcribe)
+                print(f"Loaded {added} recent message(s) from {chat_title(chat, me.id)}.")
+            except Exception as err:  # one unknown chat must not stop the server
+                print(f"Skipped chat {chat_id}: {type(err).__name__}. "
+                      "If it's the demo bot, open it in Telegram and press Start.")
 
         @client.on(events.NewMessage())
         async def on_message(event):
