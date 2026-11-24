@@ -62,3 +62,28 @@ def test_load_watched_reads_chat_ids_from_settings_file(tmp_path):
 
 def test_load_watched_defaults_to_saved_messages_when_no_file(tmp_path):
     assert load_watched(tmp_path / "missing.json", my_id=42) == {42}
+
+
+async def test_backfill_adds_recent_history_so_the_newest_ends_up_first():
+    from voicelens.inbox import Inbox
+    from voicelens.ingest import backfill
+
+    history = [msg(i=3, text="newest"), msg(i=2, text="middle"), msg(i=1, text="oldest")]  # Telegram order
+    inbox = Inbox()
+    added = await backfill(history, inbox, chat_name="Mom", transcribe=never_called)
+    assert added == 3
+    assert [x.text for x in inbox.items()] == ["newest", "middle", "oldest"]
+
+
+async def test_backfill_skips_media_it_cannot_show_and_keeps_going_after_a_failure():
+    from voicelens.inbox import Inbox
+    from voicelens.ingest import backfill
+
+    async def flaky(_message):
+        raise RuntimeError("transcription failed")
+
+    history = [msg(i=3, text="hi"), msg(i=2, voice=True, duration=4), msg(i=1, text="")]
+    inbox = Inbox()
+    added = await backfill(history, inbox, chat_name="Mom", transcribe=flaky)
+    assert added == 1
+    assert [x.text for x in inbox.items()] == ["hi"]
