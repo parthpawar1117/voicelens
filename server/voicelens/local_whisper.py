@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import threading
+import time
 from typing import Callable
 
 import imageio_ffmpeg
@@ -52,6 +53,7 @@ class LocalWhisper:
         self._decode = decoder
         self._model = None
         self._lock = threading.Lock()
+        self.last_timings: dict[str, float] = {}
 
     def _get_model(self):
         with self._lock:
@@ -65,8 +67,17 @@ class LocalWhisper:
         )
         return " ".join(s.text.strip() for s in segments).strip()
 
-    def _transcribe_sync(self, audio_path: str) -> str:
-        return self._run(self._decode(audio_path))
+    def _transcribe_sync(self, audio_path: str, queued_at: float) -> str:
+        started = time.perf_counter()
+        audio = self._decode(audio_path)
+        decoded = time.perf_counter()
+        text = self._run(audio)
+        self.last_timings = {
+            "thread_wait_s": round(started - queued_at, 3),  # time before a worker thread picked it up
+            "decode_s": round(decoded - started, 3),
+            "model_s": round(time.perf_counter() - decoded, 3),
+        }
+        return text
 
     async def warm_up(self) -> None:
         """Load the model and run one pass on 1 s of silence.
@@ -80,4 +91,4 @@ class LocalWhisper:
 
     async def __call__(self, audio_path: str) -> str:
         # Whisper is CPU-bound; keep the event loop free for Telegram updates.
-        return await asyncio.to_thread(self._transcribe_sync, audio_path)
+        return await asyncio.to_thread(self._transcribe_sync, audio_path, time.perf_counter())

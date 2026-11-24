@@ -240,7 +240,7 @@ async function tick(){
  $('live').innerHTML=!L.feed.length?'<p class="file">Waiting for your first voice note in Saved Messages…</p>':
   '<table><tr><th>Received</th><th>Audio</th><th>Engine</th><th>Download</th><th>Transcribe</th><th>Send → ready</th><th>Speed</th><th>Text on glasses</th></tr>'+
   L.feed.map(e=>e.error?`<tr><td>${esc(e.received)}</td><td>${esc(e.duration)} s</td><td colspan="6" class="msg">${esc(e.error)}</td></tr>`:
-   `<tr><td>${esc(e.received)}</td><td>${(+e.duration).toFixed(0)} s</td><td class="src">${esc(e.source)}</td><td>${e.download_s} s</td><td><b>${e.transcribe_s} s</b></td><td>${e.total_s} s</td><td>${e.speed_factor??'–'}×</td><td>${esc(e.text)}</td></tr>`).join('')+'</table>'+
+   `<tr><td>${esc(e.received)}</td><td>${(+e.duration).toFixed(0)} s</td><td class="src">${esc(e.source)}</td><td>${e.download_s} s</td><td><b>${e.transcribe_s} s</b>${e.steps&&e.steps.model_s!=null?`<div class="file">model ${e.steps.model_s} · decode ${e.steps.decode_s} · wait ${e.steps.thread_wait_s}</div>`:''}</td><td>${e.total_s} s</td><td>${e.speed_factor??'–'}×</td><td>${esc(e.text)}</td></tr>`).join('')+'</table>'+
   `<p class="file">Fastest ${m.fastest_s??'–'} s · slowest ${m.slowest_s??'–'} s · ${m.errors||0} errors · updated ${esc(L.updated)}</p>`;
 }
 tick(); setInterval(tick,2000);

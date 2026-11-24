@@ -103,8 +103,9 @@ async def main() -> None:
                     pipeline_s=round(time.perf_counter() - received, 2),
                     # From the moment Telegram stamped the message (1 s resolution).
                     total_s=round((done_utc - message.date).total_seconds(), 1),
+                    steps=dict(local.last_timings) if result.source == "local" else {},
                 )
-                print(f"  -> {result.source} in {entry['transcribe_s']} s: {result.text}")
+                print(f"  -> {result.source} in {entry['transcribe_s']} s {entry['steps']}: {result.text}")
             except (TranscriptionError, Exception) as err:  # keep listening on any failure
                 entry["error"] = f"{type(err).__name__}: {err}"
                 print(f"  -> failed: {entry['error']}")
