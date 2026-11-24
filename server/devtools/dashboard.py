@@ -257,6 +257,9 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
 .pad button:hover{border-color:#3cfa44}.pad button.hit{background:#3cfa44;color:#0b0f0b}
 .pad button small{display:block;font-weight:400;color:#9a9a9a;font-size:11px;margin-top:2px}
 .pad button.hit small{color:#0b0f0b}
+.hold{display:block;width:100%;margin-top:8px;background:#262a26;color:#e6e6e6;border:1px solid #3a3f3a;border-radius:8px;padding:14px 6px;font:600 15px system-ui;cursor:pointer;user-select:none;touch-action:none}
+.hold small{display:block;font-weight:400;color:#9a9a9a;font-size:11px;margin-top:2px}
+.hold:hover{border-color:#3cfa44}.hold.on{background:#ff5a4f;border-color:#ff5a4f;color:#fff}.hold.on small{color:#fff}
 .glmeta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#9a9a9a}
 #gllog{font:12px ui-monospace,Consolas,monospace;color:#9a9a9a}
 .inrow{display:grid;grid-template-columns:1fr auto;gap:10px;padding:10px 0;border-bottom:1px solid #262a26;align-items:start}
@@ -278,6 +281,7 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
    <button data-a="click">● Tap<small>Enter · click screen</small></button>
    <button data-a="double_click">◀ Double-tap<small>Esc · double-click</small></button>
   </div>
+  <button id="holdbtn" class="hold">🎤 Hold to talk<small>hold this button, or hold Space · speak · release</small></button>
   <div class="glmeta"><span id="glui">screen: –</span><span id="gllog">no gestures yet</span></div>
  </div>
  <div class="glcard"><b style="font-size:13px;color:#9a9a9a">FULL INBOX · newest first · <span id="incount">0</span></b><div id="inlist"></div></div>
@@ -342,7 +346,7 @@ async function tick(){
 tick(); setInterval(tick,2000);
 // ---- glasses panel: live screen, gestures, full inbox ----
 const glimg=$('glimg'), log=[]; let busy=false, glStatus=null;
-const labels={up:'swipe up',down:'swipe down',click:'tap',double_click:'double-tap'};
+const labels={up:'swipe up',down:'swipe down',click:'tap',double_click:'double-tap',long_press:'hold',long_press_release:'release'};
 function refreshShot(){ glimg.src='/glasses.png?t='+Date.now() }
 function flash(a){ const b=document.querySelector(`.pad button[data-a="${a}"]`); if(b){b.classList.add('hit'); setTimeout(()=>b.classList.remove('hit'),180)} }
 function note(t){ log.unshift(t); log.length=Math.min(log.length,4); $('gllog').textContent=log.join(' · ') }
@@ -362,11 +366,20 @@ glimg.addEventListener('click',()=>{ clearTimeout(clickTimer); clickTimer=setTim
 glimg.addEventListener('dblclick',()=>{ clearTimeout(clickTimer); gesture('double_click') });
 let wheelLock=0;
 glimg.addEventListener('wheel',e=>{ e.preventDefault(); const now=Date.now(); if(now-wheelLock<250) return; wheelLock=now; gesture(e.deltaY>0?'down':'up') },{passive:false});
+// Hold to talk: press = long_press (mic on), release = long_press_release.
+const holdBtn=$('holdbtn'); let holding=false;
+function holdStart(){ if(holding) return; holding=true; holdBtn.classList.add('on'); holdBtn.firstChild.textContent='● Recording… release to finish'; gesture('long_press') }
+function holdEnd(){ if(!holding) return; holding=false; holdBtn.classList.remove('on'); holdBtn.firstChild.textContent='🎤 Hold to talk'; gesture('long_press_release') }
+holdBtn.addEventListener('pointerdown',e=>{ e.preventDefault(); holdBtn.setPointerCapture(e.pointerId); holdStart() });
+holdBtn.addEventListener('pointerup',holdEnd); holdBtn.addEventListener('pointercancel',holdEnd);
+window.addEventListener('blur',holdEnd);
 document.addEventListener('keydown',e=>{
  if(e.target.closest&&e.target.closest('input,textarea')) return;
+ if(e.code==='Space'){ e.preventDefault(); if(!e.repeat) holdStart(); return }
  const a={ArrowUp:'up',ArrowDown:'down',Enter:'click',Escape:'double_click'}[e.key];
  if(a){ e.preventDefault(); gesture(a) }
 });
+document.addEventListener('keyup',e=>{ if(e.code==='Space'){ e.preventDefault(); holdEnd() } });
 glimg.addEventListener('error',()=>{ glimg.removeAttribute('src'); glimg.alt='Simulator not running' });
 async function glTick(){
  try{ glStatus=await (await fetch('/api/glasses')).json() }catch(e){ return }
