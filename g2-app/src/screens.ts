@@ -54,7 +54,9 @@ export function inboxScreen(items: Item[], selectedId: number | null): string {
   const lines = [`VoiceLens | ${items.length} message${items.length === 1 ? '' : 's'}`]
   for (const [offset, item] of items.slice(start, start + ROWS_PER_SCREEN).entries()) {
     const mark = start + offset === selected ? '>' : ' '
-    lines.push(`${mark} ${clip(item.chat_name, 18).padEnd(18)} ${kindLabel(item).padEnd(10)}  ${item.received_at}`)
+    // Separators, not space-padded columns: the G2 font is proportional, so
+    // padded columns drift (seen in simulator screenshots).
+    lines.push(`${mark} ${clip(item.chat_name, 24)} | ${kindLabel(item)} | ${item.received_at}`)
     lines.push(`    ${clip(item.text.replace(/\s+/g, ' '), LINE_CHARS - 4)}`)
   }
   lines.push('swipe: move | tap: open')

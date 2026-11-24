@@ -155,10 +155,10 @@ const formatName = (f: ReplyFormat) => (f === 'text' ? 'text' : 'voice')
 const clip = (t: string, n: number) => (t.length <= n ? t : t.slice(0, n - 3) + '...')
 
 function quickScreen(s: Nav, to: string, quick: QuickReply[]): string {
-  const rows = ['(o) Speak a reply', ...quick.map(q => {
-    const tag = q.has_voice ? `voice ${(q.duration ?? 0).toFixed(1)}s` : 'text'
-    return `${clip(q.label, LINE_CHARS - 4 - tag.length - 2).padEnd(LINE_CHARS - 4 - tag.length)}${tag}`
-  })]
+  // Label then a short tag, no space-padding: the G2 font is proportional,
+  // so padded columns drift. Only recorded replies get a tag.
+  const rows = ['(o) Speak a reply', ...quick.map(q =>
+    q.has_voice ? `${clip(q.label, LINE_CHARS - 2 - 2 - 8)} (voice)` : clip(q.label, LINE_CHARS - 2 - 2))]
   const at = Math.min(s.quickIndex ?? 0, rows.length - 1)
   const start = Math.min(Math.max(0, at - (QUICK_ROWS - 1)), Math.max(0, rows.length - QUICK_ROWS))
   const shown = rows.slice(start, start + QUICK_ROWS).map((r, i) => `${start + i === at ? '>' : ' '} ${r}`)
