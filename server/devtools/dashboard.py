@@ -45,15 +45,18 @@ def validate_action(action: str) -> str:
     return action
 
 
-def steps_to_open(index: int, total: int, on_message: bool) -> list[str]:
+def steps_to_open(index: int, total: int, screen: str | None) -> list[str]:
     """Simulator inputs that open inbox row `index` from wherever the glasses are.
 
-    Double tap only when a message is open (on the inbox it means "exit").
-    Swiping up `total` times always reaches the top, then down to the row.
+    Back out first: never on the inbox (there double tap means "exit"), once
+    from a message, twice from a reply screen (reply -> message -> inbox; the
+    first one also cancels any pending draft). Then swipe up `total` times to
+    reach the top, down to the row, and tap.
     """
     if not 0 <= index < total:
         raise ValueError(f"row {index} does not exist (inbox has {total})")
-    return (["double_click"] if on_message else []) + ["up"] * total + ["down"] * index + ["click"]
+    backs = 0 if screen in (None, "inbox") else 1 if screen == "message" else 2
+    return ["double_click"] * backs + ["up"] * total + ["down"] * index + ["click"]
 
 
 def _http(url: str, data: dict | None = None, timeout: float = 2.0) -> bytes | None:
@@ -85,11 +88,11 @@ def glasses_status() -> dict:
 
 def open_row(index: int) -> list[str]:
     status = glasses_status()
-    on_message = bool(status["ui"] and status["ui"].get("screen") == "message")
-    steps = steps_to_open(index, len(status["inbox"]), on_message)
+    screen = (status["ui"] or {}).get("screen")
+    steps = steps_to_open(index, len(status["inbox"]), screen)
     for action in steps:
         send_gesture(action)
-        time.sleep(0.12)  # let the glasses app handle each gesture in order
+        time.sleep(0.25 if action == "double_click" else 0.12)  # let each gesture land in order
     return steps
 
 
