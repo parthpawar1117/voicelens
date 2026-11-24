@@ -1,18 +1,19 @@
 import {
   waitForEvenAppBridge,
+  AudioInputSource,
   TextContainerProperty,
   CreateStartUpPageContainer,
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk'
-import { fetchInbox, reportUiState, SERVER_URL } from './api'
-import { classifyGesture } from './gestures'
-import { initialNav, reduce, render, type Nav } from './nav'
+import { cancelReply, fetchInbox, prepareReply, reportUiState, sendReply, SERVER_URL } from './api'
+import { classifyGesture, type Gesture } from './gestures'
+import { initialNav, reduce, render, type AppEvent, type Nav } from './nav'
 import type { Item } from './screens'
 import { mountUi, setStatus, setTranscript } from './ui'
 
-// Day 2: the shared inbox. Polls the VoiceLens server, shows voice notes
-// (already transcribed) and texts, and lets you open and page through them.
-// Replies (hold to speak) arrive on Day 3.
+// Inbox + replies. nav.ts decides what happens; this file performs the side
+// effects when the screen changes: microphone, upload, countdown, send.
+// In the simulator the "G2 microphone" is your computer's microphone.
 
 const POLL_MS = 1500
 
@@ -41,14 +42,64 @@ let items: Item[] = []
 let nav: Nav = initialNav(items)
 let shown = ''
 let online = false
+let chunks: Uint8Array[] = []
+let ticker: number | null = null
 
 async function draw() {
-  const content = online ? render(nav, items) : `VoiceLens\n\nCan't reach the VoiceLens server\n${SERVER_URL}\n\nStart it: server/run.py`
   void reportUiState(SERVER_URL, nav)
+  const content = online ? render(nav, items) : `VoiceLens\n\nCan't reach the VoiceLens server\n${SERVER_URL}\n\nStart it: server/run.py`
   if (content === shown) return
   shown = content
   setTranscript(content, '')
   await bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: 1, containerName: 'main', content }))
+}
+
+function stopTicker() {
+  if (ticker !== null) { window.clearInterval(ticker); ticker = null }
+}
+
+// Run the side effects that belong to a screen change.
+async function onTransition(prev: Nav, next: Nav) {
+  if (prev.screen === next.screen) return
+
+  if (next.screen === 'recording') {
+    chunks = []
+    await bridge.audioControl(true, AudioInputSource.Glasses)
+  }
+  if (prev.screen === 'recording') {
+    await bridge.audioControl(false)
+  }
+  if (prev.screen === 'recording' && next.screen === 'thinking' && next.selectedId !== null) {
+    const result = await prepareReply(SERVER_URL, next.selectedId, chunks)
+    chunks = []
+    dispatch(result.ok ? { type: 'draft', draft: result.draft } : { type: 'error', message: result.message })
+  }
+  if (next.screen === 'confirm') {
+    stopTicker()
+    ticker = window.setInterval(() => dispatch({ type: 'tick' }), 1000)
+  }
+  if (prev.screen === 'confirm') stopTicker()
+  if (prev.screen === 'confirm' && next.screen === 'message' && prev.reply) {
+    void cancelReply(SERVER_URL, prev.reply.draftId) // double tap during the countdown
+  }
+  if (next.screen === 'sending' && next.reply) {
+    const ok = await sendReply(SERVER_URL, next.reply.draftId, next.reply.format)
+    dispatch(ok ? { type: 'sent' } : { type: 'error', message: 'Sending failed. Nothing was sent.' })
+  }
+  if (next.screen === 'sent') {
+    window.setTimeout(() => dispatch({ type: 'done' }), 2000)
+  }
+}
+
+function dispatch(input: Gesture | AppEvent) {
+  const prev = nav
+  nav = reduce(nav, input, items)
+  if (nav.screen === 'exit') {
+    bridge.shutDownPageContainer(1) // the system shows its own confirmation dialog
+    nav = { ...nav, screen: 'inbox' }
+  }
+  void draw()
+  void onTransition(prev, nav)
 }
 
 async function poll() {
@@ -64,19 +115,17 @@ async function poll() {
 }
 
 const unsubscribe = bridge.onEvenHubEvent(event => {
-  const gesture = classifyGesture(event)
-  if (gesture === null) return
-  if (gesture === 'exit') { unsubscribe(); return }
-  nav = reduce(nav, gesture, items)
-  if (nav.screen === 'exit') {
-    // The system shows its own confirmation dialog.
-    bridge.shutDownPageContainer(1)
-    nav = { ...nav, screen: 'inbox' }
+  const pcm = event.audioEvent?.audioPcm
+  if (pcm) {
+    if (nav.screen === 'recording') chunks.push(new Uint8Array(pcm))
     return
   }
-  void draw()
+  const gesture = classifyGesture(event)
+  if (gesture === null) return
+  if (gesture === 'exit') { void bridge.audioControl(false); unsubscribe(); return }
+  dispatch(gesture)
 })
 
 await poll()
 const timer = window.setInterval(() => void poll(), POLL_MS)
-window.addEventListener('beforeunload', () => { window.clearInterval(timer); unsubscribe() })
+window.addEventListener('beforeunload', () => { window.clearInterval(timer); stopTicker(); unsubscribe() })
