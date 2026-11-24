@@ -78,7 +78,9 @@ describe('preview and countdown', () => {
 
   it('double tap cancels and returns to the message', () => {
     const s = reduce(thinking, { type: 'draft', draft }, items)
-    expect(reduce(s, 'double_tap', items)).toMatchObject({ screen: 'message', selectedId: 10, reply: undefined })
+    const back = reduce(s, 'double_tap', items)
+    expect(back).toMatchObject({ screen: 'message', selectedId: 10 })
+    expect(back.reply).toBeUndefined() // the draft is dropped
   })
 
   it('after sending it shows sent, then the inbox', () => {
