@@ -47,27 +47,49 @@ class Draft:
     chat_name: str
     format: Format
     text: str
-    pcm: bytes = field(repr=False)
+    pcm: bytes = field(default=b"", repr=False)
+    voice_clip: Path | None = None  # a saved quick-reply clip, reused as-is
+    voice_available: bool = True    # False for text-only quick replies
 
 
 class ReplyService:
     """Recording -> draft with a preview -> sent only when the glasses say so.
 
-    The 3-second undo lives on the glasses: they call send() only after the
+    The 5-second undo lives on the glasses: they call send() only after the
     countdown, or cancel() on a double tap. A draft is sent at most once.
+    Quick replies use the same flow with your saved text and voice clip, so
+    they need no speech at all.
     """
 
-    def __init__(self, *, inbox, stt, telegram, watched: set[int], tmp_dir: Path | None = None):
+    def __init__(self, *, inbox, stt, telegram, watched: set[int], tmp_dir: Path | None = None, quick=None):
         self._inbox, self._stt, self._tg, self._watched = inbox, stt, telegram, watched
+        self._quick = quick
         self._tmp = Path(tmp_dir) if tmp_dir else Path(tempfile.gettempdir())
         self._drafts: dict[str, Draft] = {}
 
-    async def prepare(self, *, item_id: int, pcm: bytes) -> Draft:
+    def _target(self, item_id: int):
         item = self._inbox.get(item_id)
         if item is None:
             raise DraftNotFound(f"message {item_id} is not in the inbox")
         if item.chat_id not in self._watched:
             raise NotAllowed("replies only go to chats you picked")
+        return item
+
+    async def prepare_quick(self, *, item_id: int, quick_id: str) -> Draft:
+        item = self._target(item_id)
+        q = self._quick.get(quick_id) if self._quick else None
+        if q is None:
+            raise DraftNotFound("that quick reply no longer exists")
+        fmt = default_format(item.kind) if q.has_voice else "text"
+        draft = Draft(id=uuid.uuid4().hex[:12], item_id=item.id, chat_id=item.chat_id,
+                      chat_name=item.chat_name, format=fmt, text=q.label,
+                      voice_clip=self._quick.voice_path(q.id) if q.has_voice else None,
+                      voice_available=q.has_voice)
+        self._drafts[draft.id] = draft
+        return draft
+
+    async def prepare(self, *, item_id: int, pcm: bytes) -> Draft:
+        item = self._target(item_id)
         text = (await self._stt(pcm)).strip()
         if not text:
             raise ValueError("didn't catch any speech, try again")
@@ -80,7 +102,11 @@ class ReplyService:
         draft = self._drafts.pop(draft_id, None)  # pop first: at most one send
         if draft is None:
             raise DraftNotFound("draft already sent, cancelled or unknown")
-        if fmt == "voice":
+        if fmt == "voice" and not draft.voice_available:
+            fmt = "text"  # a text-only quick reply has no clip to send
+        if fmt == "voice" and draft.voice_clip is not None:
+            await self._tg.send_voice(draft.chat_id, draft.voice_clip, reply_to=draft.item_id)
+        elif fmt == "voice":
             ogg = pcm_to_ogg_opus(draft.pcm, self._tmp / f"reply_{draft.id}.ogg")
             try:
                 await self._tg.send_voice(draft.chat_id, ogg, reply_to=draft.item_id)
