@@ -72,3 +72,14 @@ describe('reply API client', () => {
     expect(fake.mock.calls[1][0]).toBe('http://x/reply/cancel')
   })
 })
+
+describe('reportUiState for reply screens', () => {
+  it('reports recording and confirm screens, but not the exit request', async () => {
+    const { reportUiState } = await import('./api')
+    const fake = vi.fn().mockResolvedValue({ ok: true })
+    await reportUiState('http://x', { screen: 'recording', selectedId: 1, page: 0 }, fake as unknown as typeof fetch)
+    await reportUiState('http://x', { screen: 'exit', selectedId: 1, page: 0 }, fake as unknown as typeof fetch)
+    expect(fake).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(fake.mock.calls[0][1].body).screen).toBe('recording')
+  })
+})

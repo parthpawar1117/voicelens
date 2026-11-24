@@ -20,3 +20,9 @@ def test_glasses_app_can_report_its_screen():
 def test_unknown_screen_names_are_rejected():
     c = TestClient(create_app(Inbox()))
     assert c.post("/ui-state", json={"screen": "hacked", "selected_id": None, "page": 0}).status_code == 422
+
+
+def test_reply_screens_are_reported_too():
+    c = TestClient(create_app(Inbox()))
+    for screen in ("recording", "thinking", "confirm", "sending", "sent", "error"):
+        assert c.post("/ui-state", json={"screen": screen, "selected_id": 1, "page": 0}).status_code == 200
