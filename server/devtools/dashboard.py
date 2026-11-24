@@ -338,8 +338,8 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
    <div id="rbtitle" class="rbtitle"></div>
    <div id="rbtext" class="rbtext"></div>
    <div id="rbchoices" class="rbchoices">
-    <button data-fmt="text">💬 Send as text</button>
-    <button data-fmt="voice">🎤 Send as voice</button>
+    <button data-fmt="text">💬 Send as text<small style="display:block;font-weight:400;font-size:11px">glasses: swipe up · key ↑</small></button>
+    <button data-fmt="voice">🎤 Send as voice<small style="display:block;font-weight:400;font-size:11px">glasses: swipe down · key ↓</small></button>
     <button id="rbcancel" class="cancel">✕ Cancel</button>
    </div>
   </div>
@@ -529,7 +529,7 @@ function renderReply(ui){
 }
 $('rbchoices').querySelectorAll('[data-fmt]').forEach(b=>b.addEventListener('click',()=>{
  const ui=glStatus&&glStatus.ui; if(!ui||ui.screen!=='confirm') return;
- if(b.dataset.fmt!==ui.reply_format) gesture('click'); // a tap switches format; it never sends
+ gesture(b.dataset.fmt==='text'?'up':'down'); // same as the glasses: swipe up = text, down = voice
 }));
 $('rbcancel').addEventListener('click',()=>gesture('double_click'));
 $('restartbtn').addEventListener('click',async()=>{
