@@ -79,7 +79,11 @@ def restart_simulator() -> bool:
     else:
         subprocess.run(["pkill", "-f", "evenhub-simulator"], capture_output=True)
     time.sleep(0.8)
-    subprocess.Popen(simulator_command(), cwd=APP, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Start it as its own process (own group, no console window) so it keeps
+    # running when the dashboard restarts; it used to close along with it.
+    flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if sys.platform == "win32" else 0
+    subprocess.Popen(simulator_command(), cwd=APP, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=sys.platform != "win32")
     for _ in range(30):  # wait until its automation API answers
         if _http(f"{SIM}/api/ping", timeout=1) is not None:
             return True
@@ -309,6 +313,11 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
 .frsend input:focus{outline:none;border-color:#3cfa44}
 .frsend #frtextbtn{background:#262a26;color:#e6e6e6;border:1px solid #3a3f3a;border-radius:8px;padding:10px 14px;font:600 14px system-ui;cursor:pointer}
 .frsend #frvoicebtn{grid-column:1 / -1}
+.gloff{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.85);border-radius:8px;text-align:center}
+.gloff[hidden]{display:none}
+.gloff p{margin:0;color:#e6e6e6;font-size:15px}
+.gloff button{background:#3cfa44;color:#0b0f0b;border:0;border-radius:10px;padding:14px 28px;font:700 17px system-ui;cursor:pointer}
+.gloff small{color:#9a9a9a}
 .mini{background:none;border:1px solid #3a3f3a;color:#9a9a9a;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
 .mini:hover{border-color:#3cfa44;color:#3cfa44}
 .hold:hover{border-color:#3cfa44}.hold.on{background:#ff5a4f;border-color:#ff5a4f;color:#fff}.hold.on small{color:#fff}
@@ -326,7 +335,14 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
 <h2>Glasses <span id="glbadge" class="pill">checking…</span></h2>
 <div class="gl">
  <div class="glcard">
-  <img id="glimg" tabindex="0" alt="Live G2 glasses screen. Click to tap, double-click to double-tap, scroll to swipe." src="/glasses.png">
+  <div style="position:relative">
+   <img id="glimg" tabindex="0" alt="Live G2 glasses screen. Click to tap, double-click to double-tap, scroll to swipe." src="/glasses.png">
+   <div id="gloff" class="gloff" hidden>
+    <p>The glasses simulator is off.</p>
+    <button id="glstart">▶ Start glasses</button>
+    <small>Takes about 5 seconds</small>
+   </div>
+  </div>
   <div class="pad">
    <button data-a="up">▲ Swipe up<small>key ↑ · wheel up</small></button>
    <button data-a="down">▼ Swipe down<small>key ↓ · wheel down</small></button>
@@ -508,6 +524,7 @@ async function glTick(){
  const s=glStatus, b=$('glbadge');
  b.className='pill '+(s.simulator&&s.server?'ok':'bad');
  b.textContent=!s.simulator?'simulator not running':!s.server?'VoiceLens server not running':'connected · live';
+ $('gloff').hidden=s.simulator;
  const ui=s.ui||{}, sel=s.inbox.find(i=>i.id===ui.selected_id);
  $('glui').textContent=ui.screen?`screen: ${ui.screen}${sel?' · '+sel.chat_name+' ('+sel.kind+')':''}${ui.screen==='message'?' · page '+(ui.page+1):''}`:'screen: –';
  $('incount').textContent=s.inbox.length;
@@ -532,11 +549,13 @@ $('rbchoices').querySelectorAll('[data-fmt]').forEach(b=>b.addEventListener('cli
  gesture(b.dataset.fmt==='text'?'up':'down'); // same as the glasses: swipe up = text, down = voice
 }));
 $('rbcancel').addEventListener('click',()=>gesture('double_click'));
-$('restartbtn').addEventListener('click',async()=>{
- const b=$('restartbtn'); b.disabled=true; b.textContent='Restarting…'; note('restart app');
+async function restartGlasses(btn,label){
+ btn.disabled=true; btn.textContent='Starting…'; note('start glasses');
  try{ await fetch('/api/restart',{method:'POST',body:'{}'}) }catch(e){}
- b.disabled=false; b.textContent='↻ Restart glasses app'; refreshShot(); glTick();
-});
+ btn.disabled=false; btn.textContent=label; setTimeout(refreshShot,800); glTick();
+}
+$('restartbtn').addEventListener('click',()=>restartGlasses($('restartbtn'),'↻ Restart glasses app'));
+$('glstart').addEventListener('click',()=>restartGlasses($('glstart'),'▶ Start glasses'));
 glTick(); setInterval(glTick,800); setInterval(()=>{ if(glStatus&&glStatus.simulator) refreshShot() },700);
 </script></body></html>"""
 
