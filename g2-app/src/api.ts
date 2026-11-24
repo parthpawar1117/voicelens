@@ -1,4 +1,4 @@
-import type { ReplyDraft, ReplyFormat } from './nav'
+import type { Nav, ReplyDraft, ReplyFormat } from './nav'
 import type { Item } from './screens'
 
 // The VoiceLens server (server/run.py). Override with VITE_SERVER_URL.
@@ -62,7 +62,7 @@ export async function cancelReply(base: string, draftId: string, fetchFn: typeof
 /** Tell the server what the glasses show (used by the dev dashboard). Never throws. */
 export async function reportUiState(
   base: string,
-  nav: { screen: string; selectedId: number | null; page: number; reply?: { format: ReplyFormat; countdown: number; text: string } },
+  nav: Pick<Nav, 'screen' | 'selectedId' | 'page' | 'reply'>,
   fetchFn: typeof fetch = fetch,
 ): Promise<void> {
   if (nav.screen === 'exit') return
