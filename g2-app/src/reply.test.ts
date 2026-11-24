@@ -19,9 +19,9 @@ describe('starting and stopping a recording', () => {
     expect(reduce(onMessage, 'long_press', items).screen).toBe('recording')
   })
 
-  it('tap also starts and stops recording, for when hold is awkward', () => {
-    const rec = reduce(onMessage, 'tap', items)
-    expect(rec.screen).toBe('recording')
+  it('tap on a message opens quick replies; tap while recording still stops it', () => {
+    expect(reduce(onMessage, 'tap', items).screen).toBe('quick')
+    const rec = reduce(onMessage, 'long_press', items)
     expect(reduce(rec, 'tap', items).screen).toBe('thinking')
   })
 

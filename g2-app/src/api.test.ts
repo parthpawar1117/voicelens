@@ -92,3 +92,26 @@ describe('reportUiState with a reply in progress', () => {
     expect(JSON.parse(fake.mock.calls[0][1].body)).toEqual({ screen: 'confirm', selected_id: 1, page: 0, reply_format: 'voice', countdown: 4, reply_text: 'On my way' })
   })
 })
+
+describe('quick reply client', () => {
+  it('fetches quick replies', async () => {
+    const { fetchQuickReplies } = await import('./api')
+    const fake = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [{ id: 'q1', label: 'On my way', duration: null, has_voice: false }] }) })
+    expect(await fetchQuickReplies('http://x', fake as unknown as typeof fetch)).toEqual([{ id: 'q1', label: 'On my way', duration: null, has_voice: false }])
+    expect(fake.mock.calls[0][0]).toBe('http://x/quick-replies')
+  })
+
+  it('returns null when the server is down', async () => {
+    const { fetchQuickReplies } = await import('./api')
+    expect(await fetchQuickReplies('http://x', vi.fn().mockRejectedValue(new TypeError('x')) as unknown as typeof fetch)).toBeNull()
+  })
+
+  it('asks for a quick-reply draft and maps voice availability', async () => {
+    const { prepareQuick } = await import('./api')
+    const fake = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ draft_id: 'd9', text: 'On my way', format: 'voice', chat_name: 'Mom', voice_available: true }) })
+    expect(await prepareQuick('http://x', 10, 'q5', fake as unknown as typeof fetch)).toEqual({
+      ok: true, draft: { draftId: 'd9', text: 'On my way', format: 'voice', chatName: 'Mom', voiceAvailable: true, quick: true },
+    })
+    expect(JSON.parse(fake.mock.calls[0][1].body)).toEqual({ item_id: 10, quick_id: 'q5' })
+  })
+})
