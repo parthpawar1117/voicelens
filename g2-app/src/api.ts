@@ -62,15 +62,17 @@ export async function cancelReply(base: string, draftId: string, fetchFn: typeof
 /** Tell the server what the glasses show (used by the dev dashboard). Never throws. */
 export async function reportUiState(
   base: string,
-  nav: { screen: string; selectedId: number | null; page: number },
+  nav: { screen: string; selectedId: number | null; page: number; reply?: { format: ReplyFormat; countdown: number; text: string } },
   fetchFn: typeof fetch = fetch,
 ): Promise<void> {
   if (nav.screen === 'exit') return
+  const body: Record<string, unknown> = { screen: nav.screen, selected_id: nav.selectedId, page: nav.page }
+  if (nav.reply) Object.assign(body, { reply_format: nav.reply.format, countdown: nav.reply.countdown, reply_text: nav.reply.text })
   try {
     await fetchFn(`${base}/ui-state`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ screen: nav.screen, selected_id: nav.selectedId, page: nav.page }),
+      body: JSON.stringify(body),
     })
   } catch {
     // The dashboard is a dev aid; the glasses must keep working without it.

@@ -18,6 +18,9 @@ class UiState(BaseModel):
     screen: Literal["inbox", "message", "recording", "thinking", "confirm", "sending", "sent", "error"] | None = None
     selected_id: int | None = None
     page: int = 0
+    reply_format: Literal["voice", "text"] | None = None  # while a reply is previewed
+    countdown: int | None = None
+    reply_text: str | None = None
 
 
 class PrepareReply(BaseModel):
