@@ -63,3 +63,42 @@ def test_quick_reply_clip_path_is_only_inside_the_store(tmp_path, monkeypatch):
 
 def test_jump_backs_out_of_the_quick_list_twice():
     assert steps_to_open(index=0, total=1, screen="quick")[:2] == ["double_click", "double_click"]
+
+
+def test_open_targets_the_message_and_retries_when_the_glasses_list_lags():
+    from devtools.dashboard import open_message
+
+    class FakeGlasses:
+        """Glasses whose inbox lags one refresh behind the server."""
+        def __init__(self):
+            self.server_ids = [9, 8, 7]          # 9 just arrived
+            self.glasses_ids = [8, 7]            # glasses haven't fetched it yet
+            self.screen, self.sel, self.sent = "inbox", 8, []
+
+        def status(self):
+            return {"inbox": [{"id": i} for i in self.server_ids],
+                    "ui": {"screen": self.screen, "selected_id": self.sel}}
+
+        def send(self, action):
+            self.sent.append(action)
+            ids = self.glasses_ids
+            if self.screen == "inbox":
+                at = ids.index(self.sel) if self.sel in ids else 0
+                if action == "up": self.sel = ids[max(0, at - 1)]
+                elif action == "down": self.sel = ids[min(len(ids) - 1, at + 1)]
+                elif action == "click": self.screen = "message"
+            elif self.screen == "message" and action == "double_click":
+                self.screen = "inbox"
+
+        def sleep(self, _s):
+            self.glasses_ids = list(self.server_ids)  # the glasses catch up on their next poll
+
+    g = FakeGlasses()
+    assert open_message(9, status=g.status, send=g.send, sleep=g.sleep) is True
+    assert (g.screen, g.sel) == ("message", 9)
+
+
+def test_open_gives_up_cleanly_if_the_message_never_appears():
+    from devtools.dashboard import open_message
+    st = {"inbox": [{"id": 1}], "ui": {"screen": "inbox", "selected_id": 1}}
+    assert open_message(42, status=lambda: st, send=lambda a: None, sleep=lambda s: None) is False
