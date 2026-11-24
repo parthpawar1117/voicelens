@@ -49,3 +49,17 @@ def test_restart_command_relaunches_the_simulator_on_the_dev_server():
     cmd = simulator_command()
     assert cmd[-1] == "http://localhost:5173"
     assert "--automation-port" in cmd and "9898" in cmd
+
+
+def test_quick_reply_clip_path_is_only_inside_the_store(tmp_path, monkeypatch):
+    from devtools import dashboard
+    monkeypatch.setattr(dashboard, "QUICK_DIR", tmp_path)
+    (tmp_path / "q3.ogg").write_bytes(b"OggS")
+    assert dashboard.quick_clip("q3") == b"OggS"
+    for bad in ("../.env", "q3.ogg", "..\x", "q", "q3/../../x", ""):
+        assert dashboard.quick_clip(bad) is None
+    assert dashboard.quick_clip("q99") is None
+
+
+def test_jump_backs_out_of_the_quick_list_twice():
+    assert steps_to_open(index=0, total=1, screen="quick")[:2] == ["double_click", "double_click"]
