@@ -87,6 +87,8 @@ def parse_replies(updates: list[dict], offset: int | None = None) -> tuple[list[
             "file_id": voice["file_id"] if voice else None,
             "duration": voice.get("duration") if voice else None,
             "date": m.get("date"),
+            # VoiceLens always replies to the friend's message; typing on the phone usually doesn't.
+            "via_g2": "reply_to_message" in m,
         })
     return replies, chat_id, offset
 
@@ -145,6 +147,7 @@ class DemoFriend:
         self.api = api
         self.chat_id = chat_id
         self.conversation: list[dict] = []  # newest last: what "Rahul" sees
+        self.seq = 0  # rises on every new entry, even when the log is full
         self._offset: int | None = None
         self._lock = threading.Lock()
 
@@ -182,3 +185,4 @@ class DemoFriend:
     def _log(self, entry: dict) -> None:
         with self._lock:
             self.conversation = [*self.conversation, entry][-30:]
+            self.seq += 1
