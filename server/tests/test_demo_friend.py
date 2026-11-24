@@ -111,3 +111,20 @@ def test_bot_api_errors_never_include_the_token(monkeypatch):
         api("getMe")
     assert "SECRETTOKEN" not in str(err.value)
     assert "getMe" in str(err.value)
+
+
+def test_finds_this_bots_token_in_a_botfather_message():
+    from devtools.demo_friend import extract_token
+    fake = "9278152065:" + "Ab3_-" * 7
+    msg = f"Your token was replaced with a new one. You can use this token to access HTTP API:\n{fake}\nFor a description..."
+    assert extract_token(msg, bot_id=9278152065) == fake
+    assert extract_token(msg, bot_id=111) is None  # another bot's token is ignored
+    assert extract_token("no token here", bot_id=9278152065) is None
+
+
+def test_env_update_replaces_only_the_token_line():
+    from devtools.demo_friend import set_env_value
+    before = "TELEGRAM_API_ID=1\nTELEGRAM_DEMO_BOT_TOKEN=old value\nSERVER_PORT=8787\n"
+    after = set_env_value(before, "TELEGRAM_DEMO_BOT_TOKEN", "NEW")
+    assert after == "TELEGRAM_API_ID=1\nTELEGRAM_DEMO_BOT_TOKEN=NEW\nSERVER_PORT=8787\n"
+    assert set_env_value("A=1\n", "TELEGRAM_DEMO_BOT_TOKEN", "NEW") == "A=1\nTELEGRAM_DEMO_BOT_TOKEN=NEW\n"
