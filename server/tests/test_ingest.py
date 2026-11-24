@@ -91,3 +91,13 @@ async def test_backfill_skips_media_it_cannot_show_and_keeps_going_after_a_failu
 
 def test_demo_friend_bot_chat_is_watched_automatically(tmp_path):
     assert load_watched(tmp_path / "missing.json", my_id=42, extra={777}) == {42, 777}
+
+
+def test_your_own_replies_in_a_friends_chat_are_not_shown_as_incoming():
+    from voicelens.ingest import should_show
+    mine = SimpleNamespace(out=True, chat_id=777)
+    theirs = SimpleNamespace(out=False, chat_id=777)
+    saved = SimpleNamespace(out=True, chat_id=42)  # Saved Messages: everything is "yours"
+    assert should_show(theirs, my_id=42)
+    assert not should_show(mine, my_id=42)
+    assert should_show(saved, my_id=42)
