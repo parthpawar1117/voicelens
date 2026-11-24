@@ -9,7 +9,9 @@ Run it yourself (it handles a secret):
 - Writes it to server/.env, changing only that one line.
 - Never prints the token.
 
-It uses a temporary copy of your session, so the running server can stay on.
+It uses a temporary copy of your session. Telegram then sends new-message
+updates to this connection instead of the server's, so restart server/run.py
+afterwards (seen in testing: the server stopped receiving messages).
 """
 
 from __future__ import annotations
@@ -60,7 +62,7 @@ async def main() -> None:
     token = clean_token(token)
     ENV.write_text(set_env_value(ENV.read_text(encoding="utf-8"), KEY, token), encoding="utf-8")
     print(f"Saved the new token for bot {bot_id} to server/.env (not shown).")
-    print("Now restart the dashboard so it picks it up.")
+    print("Now restart the server and the dashboard so they pick it up.")
 
 
 if __name__ == "__main__":
