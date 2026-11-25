@@ -2,7 +2,8 @@
 
     server/.venv/Scripts/python server/run.py
 
-- Watches the chats in server/watched_chats.json (default: your Saved Messages).
+- Watches the chats you pick on the dashboard (default: your Saved Messages).
+- AI reply drafts and channel digests with ANTHROPIC_API_KEY in server/.env.
 - Texts go into the inbox at once; voice notes are transcribed first
   (Telegram for Premium, else local Whisper on the GPU, kept warm).
 - Serves the inbox on http://127.0.0.1:8787 for the G2 app.
@@ -23,11 +24,13 @@ import uvicorn  # noqa: E402
 from telethon import TelegramClient, events  # noqa: E402
 
 from voicelens import local_whisper  # noqa: E402
+from voicelens.ai import make_writer  # noqa: E402
 from voicelens.app import create_app  # noqa: E402
+from voicelens.chats import ChatDirectory  # noqa: E402
 from voicelens.config import SERVER_DIR, load_settings  # noqa: E402
 from voicelens.hybrid import transcribe_hybrid  # noqa: E402
 from voicelens.inbox import Inbox  # noqa: E402
-from voicelens.ingest import backfill, is_watched, load_watched, should_show, to_inbox_item  # noqa: E402
+from voicelens.ingest import backfill, is_watched, should_show, to_inbox_item  # noqa: E402
 from voicelens.local_whisper import LocalWhisper  # noqa: E402
 from voicelens.quick_replies import QuickReplyStore  # noqa: E402
 from voicelens.reply import ReplyService  # noqa: E402
@@ -66,8 +69,12 @@ async def main() -> None:
         if settings.demo_bot_token:  # demo videos: the bot plays "the friend"
             extra.add(bot_id_from_token(settings.demo_bot_token))
             print("Demo friend bot chat is watched.")
-        watched = load_watched(SERVER_DIR / "watched_chats.json", my_id=me.id, extra=extra)
+        chats = ChatDirectory(SERVER_DIR / "watched_chats.json", my_id=me.id)
+        watched = chats.watched  # one live set: picks on the dashboard apply at once
+        watched.update(extra)
         print(f"Watching {len(watched)} chat(s).")
+        writer = make_writer()
+        print("AI drafts and digests: " + ("on (Claude API)" if writer else "off (add ANTHROPIC_API_KEY to server/.env)"))
 
         async def transcribe(message):
             path = TMP / f"in_{message.chat_id}_{message.id}.ogg"
@@ -89,7 +96,20 @@ async def main() -> None:
         # Telethon can only open chats it has seen. Loading the chat list first
         # lets it find e.g. the demo bot (crashed with "Could not find the input
         # entity" before).
-        await client.get_dialogs()
+        dialogs = await client.get_dialogs()
+        chats.set_known([(d.id, chat_title(d.entity, me.id),
+                          "channel" if d.is_channel and not d.is_group else "group" if d.is_group else "user")
+                         for d in dialogs])
+        print(f"Found {len(dialogs)} chats you can pick on the dashboard.")
+
+        async def add_drafts(item):
+            """Prepare AI reply drafts as soon as a message arrives (ready before you open it)."""
+            if writer is None:
+                return
+            recent = [f"{x.chat_name}: {x.text}" for x in reversed(inbox.items()) if x.chat_id == item.chat_id][-6:]
+            drafts = await writer.draft_replies(item.chat_name, recent, item.text)
+            if drafts:
+                inbox.attach_drafts(item.chat_id, item.id, drafts)
 
         # Load recent history so the inbox isn't empty after a restart.
         for chat_id in watched:
@@ -116,6 +136,7 @@ async def main() -> None:
                 return
             if item:
                 inbox.add(item)
+                asyncio.create_task(add_drafts(item))
                 print(f"+ {item.kind:5} from {item.chat_name}: {item.text[:60]}")
 
         class TelegramSender:
@@ -134,7 +155,7 @@ async def main() -> None:
                                watched=watched, tmp_dir=TMP, quick=quick)
 
         server = uvicorn.Server(uvicorn.Config(
-            create_app(inbox, replies=replies, quick=quick, stt=local.transcribe_pcm), host="127.0.0.1", port=settings.port, log_level="warning",
+            create_app(inbox, replies=replies, quick=quick, stt=local.transcribe_pcm, chats=chats, writer=writer), host="127.0.0.1", port=settings.port, log_level="warning",
         ))
         print(f"Inbox API on http://127.0.0.1:{settings.port}/inbox")
         try:
