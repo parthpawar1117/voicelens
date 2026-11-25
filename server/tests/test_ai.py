@@ -93,3 +93,25 @@ async def test_reasoning_models_get_low_effort_others_do_not():
     w.model = "llama-3.1-8b-instant"
     await w.draft_replies("Rahul", [], "Hi?")
     assert "reasoning_effort" not in calls[1]
+
+
+async def test_retries_once_when_groq_rejects_unfinished_json():
+    # Seen live: the digest failed 2 of 3 times with 400 json_validate_failed.
+    calls = []
+
+    def handler(request):
+        calls.append(json.loads(request.content))
+        if len(calls) == 1:
+            return httpx.Response(400, json={"error": {"code": "json_validate_failed", "message": "Failed to validate JSON"}})
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({"lines": ["BTC 100k"]})}}]})
+
+    w = AIWriter(api_key="test-key", client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    assert await w.digest({"Crypto": ["BTC broke 100k"]}) == ["BTC 100k"]
+    assert len(calls) == 2
+
+
+async def test_digest_gets_more_room_than_a_draft():
+    w, calls = writer({"lines": ["x"]})
+    await w.digest({"Crypto": ["BTC broke 100k"]})
+    await w.draft_replies("A", [], "hi")
+    assert calls[0]["max_tokens"] >= 1000 and calls[1]["max_tokens"] <= 400
