@@ -76,6 +76,41 @@ export async function prepareQuick(base: string, itemId: number, quickId: string
   }
 }
 
+type DraftJson = { draft_id: string; text: string; format: ReplyFormat; chat_name: string; voice_available: boolean }
+
+async function draftCall(fetchFn: typeof fetch, url: string, body: unknown, extra: Partial<ReplyDraft> = {}): Promise<PrepareResult> {
+  try {
+    const res = await post(fetchFn, url, body)
+    if (!res.ok) return { ok: false, message: await errorMessage(res) }
+    const d = (await res.json()) as DraftJson
+    return { ok: true, draft: { draftId: d.draft_id, text: d.text, format: d.format, chatName: d.chat_name, voiceAvailable: d.voice_available, ...extra } }
+  } catch {
+    return { ok: false, message: "Can't reach the VoiceLens server." }
+  }
+}
+
+/** Approve an AI-drafted reply: becomes a text draft for the countdown. */
+export const prepareDraftText = (base: string, itemId: number, text: string, fetchFn: typeof fetch = fetch) =>
+  draftCall(fetchFn, `${base}/reply/text`, { item_id: itemId, text })
+
+/** "Send a message to Mom: ..." spoken into the glasses -> a new-message draft. */
+export async function prepareCommand(base: string, chunks: Uint8Array[], fetchFn: typeof fetch = fetch): Promise<PrepareResult> {
+  const pcm = join(chunks)
+  if (pcm.length === 0) return { ok: false, message: 'No audio was recorded. Check the microphone and try again.' }
+  return draftCall(fetchFn, `${base}/command/prepare`, { audio_b64: toBase64(pcm) }, { command: true })
+}
+
+/** Digest lines of your picked chats (or one line explaining why there are none). */
+export async function fetchDigest(base: string, fetchFn: typeof fetch = fetch): Promise<string[]> {
+  try {
+    const res = await fetchFn(`${base}/digest`, { cache: 'no-store' })
+    const body = (await res.json()) as { lines: string[]; error?: string }
+    return body.error ? [body.error] : body.lines
+  } catch {
+    return ["Can't reach the VoiceLens server."]
+  }
+}
+
 export async function sendReply(base: string, draftId: string, format: ReplyFormat, fetchFn: typeof fetch = fetch): Promise<boolean> {
   try {
     const res = await post(fetchFn, `${base}/reply/send`, { draft_id: draftId, format })

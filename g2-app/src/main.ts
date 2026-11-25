@@ -5,7 +5,7 @@ import {
   CreateStartUpPageContainer,
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk'
-import { cancelReply, fetchInbox, fetchQuickReplies, prepareQuick, prepareReply, reportUiState, sendReply, SERVER_URL, type QuickReply } from './api'
+import { cancelReply, fetchDigest, fetchInbox, fetchQuickReplies, prepareCommand, prepareDraftText, prepareQuick, prepareReply, reportUiState, sendReply, SERVER_URL, type QuickReply } from './api'
 import { classifyGesture, type Gesture } from './gestures'
 import { initialNav, reduce, render, type AppEvent, type Nav } from './nav'
 import type { Item } from './screens'
@@ -79,7 +79,19 @@ async function onTransition(prev: Nav, next: Nav) {
     const latest = await fetchQuickReplies(SERVER_URL) // fresh list each time it opens
     if (latest) { quick = latest; void draw() }
   }
-  if (prev.screen === 'recording' && next.screen === 'thinking' && next.selectedId !== null) {
+  if (next.screen === 'thinking' && next.draftText && next.selectedId !== null) {
+    // An AI draft was chosen: make it a text draft for the countdown.
+    const result = await prepareDraftText(SERVER_URL, next.selectedId, next.draftText)
+    dispatch(result.ok ? { type: 'draft', draft: result.draft } : { type: 'error', message: result.message })
+  }
+  if (next.screen === 'digest' && prev.screen !== 'digest') {
+    dispatch({ type: 'digest', lines: await fetchDigest(SERVER_URL) })
+  }
+  if (prev.screen === 'recording' && next.screen === 'thinking' && next.command) {
+    const result = await prepareCommand(SERVER_URL, chunks) // "send a message to Mom: ..."
+    chunks = []
+    dispatch(result.ok ? { type: 'draft', draft: result.draft } : { type: 'error', message: result.message })
+  } else if (prev.screen === 'recording' && next.screen === 'thinking' && next.selectedId !== null) {
     const result = await prepareReply(SERVER_URL, next.selectedId, chunks)
     chunks = []
     dispatch(result.ok ? { type: 'draft', draft: result.draft } : { type: 'error', message: result.message })
@@ -89,7 +101,7 @@ async function onTransition(prev: Nav, next: Nav) {
     ticker = window.setInterval(() => dispatch({ type: 'tick' }), 1000)
   }
   if (prev.screen === 'confirm') stopTicker()
-  if (prev.screen === 'confirm' && next.screen === 'message' && prev.reply) {
+  if (prev.screen === 'confirm' && (next.screen === 'message' || next.screen === 'inbox') && prev.reply) {
     void cancelReply(SERVER_URL, prev.reply.draftId) // double tap during the countdown
   }
   if (next.screen === 'sending' && next.reply) {
@@ -122,8 +134,12 @@ async function poll() {
   }
   if (latest) {
     const wasEmpty = items.length === 0
+    const known = new Set(items.map(i => i.id))
     items = latest
     if (wasEmpty && nav.selectedId === null) nav = initialNav(items)
+    // A message that wasn't there before pops up its reply card (only from the inbox).
+    const fresh = wasEmpty ? undefined : latest.find(i => !known.has(i.id))
+    if (fresh) dispatch({ type: 'incoming', id: fresh.id })
   }
   await draw()
 }
