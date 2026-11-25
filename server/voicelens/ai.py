@@ -49,25 +49,28 @@ class AIWriter:
         self.model = model
         self._client = client or httpx.AsyncClient(timeout=15)
 
-    def _body(self, system: str, prompt: str) -> dict:
+    def _body(self, system: str, prompt: str, max_tokens: int) -> dict:
         body = {
             "model": self.model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
             "response_format": {"type": "json_object"},
             "temperature": 0.4,
-            "max_tokens": 300,
+            "max_tokens": max_tokens,  # includes the reasoning tokens of gpt-oss
         }
         if self.model.startswith(_REASONING_PREFIXES):
             body["reasoning_effort"] = "low"  # fastest, and plenty for short replies
         return body
 
-    async def _ask(self, system: str, prompt: str, key: str) -> list[str]:
+    async def _post(self, body: dict) -> httpx.Response:
+        response = await self._client.post(GROQ_URL, headers={"Authorization": f"Bearer {self._key}"}, json=body)
+        if response.status_code == 400 and "json_validate_failed" in response.text:
+            # Groq rejects JSON the model didn't finish; one retry usually succeeds.
+            response = await self._client.post(GROQ_URL, headers={"Authorization": f"Bearer {self._key}"}, json=body)
+        return response
+
+    async def _ask(self, system: str, prompt: str, key: str, max_tokens: int) -> list[str]:
         try:
-            response = await self._client.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {self._key}"},
-                json=self._body(system, prompt),
-            )
+            response = await self._post(self._body(system, prompt, max_tokens))
             response.raise_for_status()
             choice = response.json()["choices"][0]
         except (httpx.HTTPError, KeyError, IndexError, ValueError):
@@ -83,14 +86,14 @@ class AIWriter:
     async def draft_replies(self, chat_name: str, recent: list[str], incoming: str) -> list[str]:
         prompt = (f"Chat with: {chat_name}\n<recent>\n" + "\n".join(recent[-6:]) +
                   f"\n</recent>\n<message>\n{incoming}\n</message>")
-        return (await self._ask(_DRAFT_SYSTEM, prompt, "replies"))[:2]
+        return (await self._ask(_DRAFT_SYSTEM, prompt, "replies", max_tokens=400))[:2]
 
     async def digest(self, chats: dict[str, list[str]]) -> list[str]:
         if not any(chats.values()):
             return []
         prompt = "\n".join(f'<channel name="{name}">\n' + "\n".join(msgs[-30:]) + "\n</channel>"
                            for name, msgs in chats.items() if msgs)
-        return (await self._ask(_DIGEST_SYSTEM, prompt, "lines"))[:5]
+        return (await self._ask(_DIGEST_SYSTEM, prompt, "lines", max_tokens=1500))[:5]
 
 
 def make_writer() -> AIWriter | None:
