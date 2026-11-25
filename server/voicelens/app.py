@@ -220,7 +220,7 @@ def create_app(inbox: Inbox, replies: ReplyService | None = None,
     @app.get("/digest")
     async def digest() -> dict:
         if app.state.writer is None:
-            return {"lines": [], "error": "Add ANTHROPIC_API_KEY to server/.env for digests"}
+            return {"lines": [], "error": "Add GROQ_API_KEY to server/.env for digests"}
         made_at, cached = app.state.digest
         if cached is not None and time.monotonic() - made_at < DIGEST_TTL_S:
             return cached

@@ -3,7 +3,7 @@
     server/.venv/Scripts/python server/run.py
 
 - Watches the chats you pick on the dashboard (default: your Saved Messages).
-- AI reply drafts and channel digests with ANTHROPIC_API_KEY in server/.env.
+- AI reply drafts and channel digests with GROQ_API_KEY in server/.env.
 - Texts go into the inbox at once; voice notes are transcribed first
   (Telegram for Premium, else local Whisper on the GPU, kept warm).
 - Serves the inbox on http://127.0.0.1:8787 for the G2 app.
@@ -74,7 +74,7 @@ async def main() -> None:
         watched.update(extra)
         print(f"Watching {len(watched)} chat(s).")
         writer = make_writer()
-        print("AI drafts and digests: " + ("on (Claude API)" if writer else "off (add ANTHROPIC_API_KEY to server/.env)"))
+        print("AI drafts and digests: " + (f"on (Groq, {writer.model})" if writer else "off (add GROQ_API_KEY to server/.env)"))
 
         async def transcribe(message):
             path = TMP / f"in_{message.chat_id}_{message.id}.ogg"

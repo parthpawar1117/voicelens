@@ -167,7 +167,7 @@ def test_digest_summarises_picked_chats_and_is_cached(tmp_path):
 
 def test_digest_says_when_ai_is_off(tmp_path):
     c, _, _ = client(tmp_path, writer=None)
-    assert c.get("/digest").json() == {"lines": [], "error": "Add ANTHROPIC_API_KEY to server/.env for digests"}
+    assert c.get("/digest").json() == {"lines": [], "error": "Add GROQ_API_KEY to server/.env for digests"}
 
 
 def test_approve_draft_and_command_endpoints(tmp_path):
