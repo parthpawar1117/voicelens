@@ -1,68 +1,81 @@
-"""AI writer: short reply drafts and channel digests via the Claude API (faked here)."""
+"""AI writer: short reply drafts and channel digests via Groq (faked with httpx.MockTransport)."""
 
 import json
-from types import SimpleNamespace
 
-from voicelens.ai import AIWriter
+import httpx
 
-
-class FakeMessages:
-    def __init__(self, payload=None, error=None, stop_reason="end_turn"):
-        self.payload, self.error, self.stop_reason, self.calls = payload, error, stop_reason, []
-
-    async def create(self, **kwargs):
-        self.calls.append(kwargs)
-        if self.error:
-            raise self.error
-        return SimpleNamespace(stop_reason=self.stop_reason,
-                               content=[SimpleNamespace(type="text", text=json.dumps(self.payload))])
+from voicelens.ai import AIWriter, DEFAULT_MODEL, GROQ_URL
 
 
-def writer(**kw):
-    msgs = FakeMessages(**kw)
-    return AIWriter(SimpleNamespace(beta=SimpleNamespace(messages=msgs))), msgs
+def writer(payload=None, status=200, finish="stop"):
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        assert str(request.url) == GROQ_URL
+        assert request.headers["authorization"] == "Bearer test-key"
+        body = {"choices": [{"finish_reason": finish, "message": {"content": json.dumps(payload)}}]}
+        return httpx.Response(status, json=body)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return AIWriter(api_key="test-key", client=client), calls
 
 
 async def test_two_short_drafts_cleaned_for_the_g2_font():
-    w, msgs = writer(payload={"replies": ["Yes, joining at 5 \U0001F44D", "Running 10 min late", "extra"]})
-    drafts = await w.draft_replies("Rahul", ["Rahul: meeting moved to 5"], "Are you joining?")
-    assert drafts == ["Yes, joining at 5", "Running 10 min late"]
+    w, _ = writer({"replies": ["Yes, joining at 5 \U0001F44D", "Running 10 min late", "extra"]})
+    assert await w.draft_replies("Rahul", ["Rahul: meeting moved to 5"], "Are you joining?") == \
+        ["Yes, joining at 5", "Running 10 min late"]
 
 
-async def test_request_is_fast_structured_and_has_a_refusal_fallback():
-    w, msgs = writer(payload={"replies": ["Ok", "Later"]})
+async def test_request_is_json_mode_with_the_message_as_data():
+    w, calls = writer({"replies": ["Ok", "Later"]})
     await w.draft_replies("Rahul", [], "Hi?")
-    call = msgs.calls[0]
-    assert call["model"] == "claude-opus-5-5"
-    assert call["output_config"]["effort"] == "low"
-    assert call["output_config"]["format"]["type"] == "json_schema"
-    assert call["fallbacks"] == "default" and "server-side-fallback-2026-07-01" in call["betas"]
-    # The incoming message is data, not instructions.
-    assert "<message>" in call["messages"][0]["content"]
+    req = calls[0]
+    assert req["model"] == DEFAULT_MODEL
+    assert req["response_format"] == {"type": "json_object"}
+    assert req["messages"][0]["role"] == "system"
+    assert "<message>" in req["messages"][1]["content"]  # chat text is data, not instructions
 
 
-async def test_drafts_never_block_the_glasses_on_errors_or_refusals():
-    w, _ = writer(error=RuntimeError("network down"))
+async def test_drafts_never_block_the_glasses_on_errors():
+    w, _ = writer(status=500)
     assert await w.draft_replies("A", [], "hi") == []
-    w2, _ = writer(payload={"replies": ["x"]}, stop_reason="refusal")
+    w2, _ = writer({"replies": ["x"]}, finish="length")
     assert await w2.draft_replies("A", [], "hi") == []
+
+    def boom(request):
+        raise httpx.ConnectError("offline")
+    w3 = AIWriter(api_key="k", client=httpx.AsyncClient(transport=httpx.MockTransport(boom)))
+    assert await w3.draft_replies("A", [], "hi") == []
+
+
+async def test_bad_json_from_the_model_gives_nothing():
+    w, _ = writer("not an object")
+    assert await w.draft_replies("A", [], "hi") == []
 
 
 async def test_digest_returns_at_most_five_short_lines():
-    w, msgs = writer(payload={"lines": [f"Line {i}" for i in range(8)]})
+    w, calls = writer({"lines": [f"Line {i}" for i in range(8)]})
     lines = await w.digest({"Crypto Alpha": ["BTC broke 100k", "ETH upgrade Friday"], "Work": ["Deploy at 6"]})
     assert lines == [f"Line {i}" for i in range(5)]
-    prompt = msgs.calls[0]["messages"][0]["content"]
+    prompt = calls[0]["messages"][1]["content"]
     assert "Crypto Alpha" in prompt and "Deploy at 6" in prompt
 
 
 async def test_empty_digest_makes_no_api_call():
-    w, msgs = writer(payload={"lines": []})
+    w, calls = writer({"lines": []})
     assert await w.digest({}) == []
-    assert msgs.calls == []
+    assert calls == []
 
 
 def test_writer_is_off_without_a_key(monkeypatch):
     from voicelens.ai import make_writer
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     assert make_writer() is None
+
+
+def test_model_can_be_changed_in_env(monkeypatch):
+    from voicelens.ai import make_writer
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    monkeypatch.setenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    assert make_writer().model == "llama-3.1-8b-instant"
