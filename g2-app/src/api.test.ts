@@ -115,3 +115,29 @@ describe('quick reply client', () => {
     expect(JSON.parse(fake.mock.calls[0][1].body)).toEqual({ item_id: 10, quick_id: 'q5' })
   })
 })
+
+describe('brief feature clients', () => {
+  it('approves an AI draft as a text draft', async () => {
+    const { prepareDraftText } = await import('./api')
+    const fake = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ draft_id: 'd2', text: 'Yes, on it', format: 'text', chat_name: 'Rahul', voice_available: false }) })
+    const r = await prepareDraftText('http://x', 10, 'Yes, on it', fake as unknown as typeof fetch)
+    expect(r).toEqual({ ok: true, draft: { draftId: 'd2', text: 'Yes, on it', format: 'text', chatName: 'Rahul', voiceAvailable: false } })
+    expect(fake.mock.calls[0][0]).toBe('http://x/reply/text')
+  })
+
+  it('sends a voice command and marks the draft as a new message', async () => {
+    const { prepareCommand } = await import('./api')
+    const fake = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ draft_id: 'd3', text: 'reached', format: 'text', chat_name: 'Mom', voice_available: true }) })
+    const r = await prepareCommand('http://x', [new Uint8Array([1, 2])], fake as unknown as typeof fetch)
+    expect(r).toMatchObject({ ok: true, draft: { chatName: 'Mom', command: true } })
+    expect(fake.mock.calls[0][0]).toBe('http://x/command/prepare')
+  })
+
+  it('fetches digest lines, or explains the problem', async () => {
+    const { fetchDigest } = await import('./api')
+    const ok = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ lines: ['BTC 100k'] }) })
+    expect(await fetchDigest('http://x', ok as unknown as typeof fetch)).toEqual(['BTC 100k'])
+    const off = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ lines: [], error: 'Add ANTHROPIC_API_KEY' }) })
+    expect(await fetchDigest('http://x', off as unknown as typeof fetch)).toEqual(['Add ANTHROPIC_API_KEY'])
+  })
+})
