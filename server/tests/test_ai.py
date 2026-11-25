@@ -79,3 +79,17 @@ def test_model_can_be_changed_in_env(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "k")
     monkeypatch.setenv("GROQ_MODEL", "llama-3.1-8b-instant")
     assert make_writer().model == "llama-3.1-8b-instant"
+
+
+def test_default_is_a_model_groq_still_serves():
+    # llama-3.3-70b-versatile was retired (404 model_not_found on Nov 26, 2026).
+    assert DEFAULT_MODEL == "openai/gpt-oss-120b"
+
+
+async def test_reasoning_models_get_low_effort_others_do_not():
+    w, calls = writer({"replies": ["Ok", "Later"]})
+    await w.draft_replies("Rahul", [], "Hi?")
+    assert calls[0]["reasoning_effort"] == "low"  # fastest on gpt-oss: 548 ms measured
+    w.model = "llama-3.1-8b-instant"
+    await w.draft_replies("Rahul", [], "Hi?")
+    assert "reasoning_effort" not in calls[1]
