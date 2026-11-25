@@ -24,7 +24,7 @@ def test_unknown_screen_names_are_rejected():
 
 def test_reply_screens_are_reported_too():
     c = TestClient(create_app(Inbox()))
-    for screen in ("quick", "recording", "thinking", "confirm", "sending", "sent", "error"):
+    for screen in ("quick", "digest", "recording", "thinking", "confirm", "sending", "sent", "error"):
         assert c.post("/ui-state", json={"screen": screen, "selected_id": 1, "page": 0}).status_code == 200
 
 
