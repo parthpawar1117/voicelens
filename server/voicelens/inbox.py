@@ -7,7 +7,7 @@ Telegram handler and the HTTP API can use it at the same time.
 from __future__ import annotations
 
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Literal
 
 
@@ -22,9 +22,12 @@ class InboxItem:
     received_at: str
     source: str | None = None      # "telegram" / "local" for voice notes
     language: str | None = None    # detected language of a voice note
+    drafts: tuple[str, ...] = ()   # AI-drafted replies, filled in shortly after arrival
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["drafts"] = list(self.drafts)
+        return d
 
 
 class Inbox:
@@ -42,6 +45,11 @@ class Inbox:
     def items(self) -> list[InboxItem]:
         with self._lock:
             return list(self._items)
+
+    def attach_drafts(self, chat_id: int, item_id: int, drafts: list[str]) -> None:
+        with self._lock:
+            self._items = [replace(x, drafts=tuple(drafts)) if (x.id, x.chat_id) == (item_id, chat_id) else x
+                           for x in self._items]
 
     def get(self, item_id: int) -> InboxItem | None:
         with self._lock:

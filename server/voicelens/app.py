@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import tempfile
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -50,17 +51,37 @@ class SendQuick(BaseModel):
     quick_id: str
 
 
+class ApproveDraft(BaseModel):
+    item_id: int
+    text: str
+
+
+class PickChat(BaseModel):
+    chat_id: int
+    picked: bool
+
+
+class CommandIn(BaseModel):
+    audio_b64: str  # G2 mic audio: 16 kHz mono s16le, base64
+
+
 # The G2 plugin runs in a WebView; its fetch() needs CORS headers.
 # Tightened to the real origin before packaging.
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
+DIGEST_TTL_S = 60
+
+
 def create_app(inbox: Inbox, replies: ReplyService | None = None,
-               quick: QuickReplyStore | None = None, stt=None) -> FastAPI:
+               quick: QuickReplyStore | None = None, stt=None, chats=None, writer=None) -> FastAPI:
     app = FastAPI(title="VoiceLens")
     app.state.inbox = inbox
     app.state.replies = replies
     app.state.quick = quick
+    app.state.chats = chats
+    app.state.writer = writer
+    app.state.digest = (0.0, None)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=DEV_ORIGINS,
@@ -179,6 +200,60 @@ def create_app(inbox: Inbox, replies: ReplyService | None = None,
         except NotAllowed as err:
             raise HTTPException(status_code=403, detail=str(err))
         return draft_json(draft)
+
+    # ---- brief features: pick chats, digest, approve AI drafts, voice commands ----
+
+    def chat_dir():
+        if app.state.chats is None:
+            raise HTTPException(status_code=503, detail="Chat list needs the Telegram server (server/run.py)")
+        return app.state.chats
+
+    @app.get("/chats")
+    def list_chats() -> dict:
+        return {"chats": chat_dir().listing()}
+
+    @app.post("/chats/pick")
+    def pick_chat(body: PickChat) -> dict:
+        chat_dir().pick(body.chat_id, body.picked)
+        return {"ok": True}
+
+    @app.get("/digest")
+    async def digest() -> dict:
+        if app.state.writer is None:
+            return {"lines": [], "error": "Add ANTHROPIC_API_KEY to server/.env for digests"}
+        made_at, cached = app.state.digest
+        if cached is not None and time.monotonic() - made_at < DIGEST_TTL_S:
+            return cached
+        by_chat: dict[str, list[str]] = {}
+        for x in reversed(app.state.inbox.items()):  # oldest first
+            if app.state.chats is None or app.state.chats.is_watched(x.chat_id):
+                by_chat.setdefault(x.chat_name, []).append(x.text)
+        result = {"lines": await app.state.writer.digest(by_chat)}
+        app.state.digest = (time.monotonic(), result)
+        return result
+
+    @app.post("/reply/text")
+    async def approve_draft(body: ApproveDraft) -> dict:
+        try:
+            draft = await reply_service().prepare_text(item_id=body.item_id, text=body.text)
+        except DraftNotFound as err:
+            raise HTTPException(status_code=404, detail=str(err))
+        except NotAllowed as err:
+            raise HTTPException(status_code=403, detail=str(err))
+        except ValueError as err:
+            raise HTTPException(status_code=422, detail=str(err))
+        return draft_json(draft)
+
+    @app.post("/command/prepare")
+    async def command(body: CommandIn) -> dict:
+        try:
+            pcm = base64.b64decode(body.audio_b64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=400, detail="Audio is not valid base64")
+        result = await reply_service().prepare_command(pcm=pcm, chats=chat_dir().known)
+        if "error" in result:
+            raise HTTPException(status_code=422, detail=result["error"])
+        return draft_json(result["draft"])
 
     @app.post("/reply/send")
     async def send_reply(body: SendReply) -> dict:

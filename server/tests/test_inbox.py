@@ -49,5 +49,5 @@ def test_items_serialise_for_the_glasses_app():
     assert data == {
         "id": 3, "chat_id": 100, "chat_name": "Rahul", "kind": "voice",
         "text": "Bring the laptop", "duration": 4, "received_at": "21:03",
-        "source": None, "language": None,
+        "source": None, "language": None, "drafts": [],
     }

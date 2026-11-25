@@ -42,7 +42,7 @@ class NotAllowed(PermissionError):
 @dataclass
 class Draft:
     id: str
-    item_id: int
+    item_id: int | None  # None = a new message (voice command), not a reply
     chat_id: int
     chat_name: str
     format: Format
@@ -87,6 +87,37 @@ class ReplyService:
                       voice_available=q.has_voice)
         self._drafts[draft.id] = draft
         return draft
+
+    def _store(self, draft: Draft) -> Draft:
+        self._drafts[draft.id] = draft
+        return draft
+
+    async def prepare_text(self, *, item_id: int, text: str) -> Draft:
+        """Approve an AI-drafted reply: sent as text after the countdown."""
+        item = self._target(item_id)
+        text = text.strip()
+        if not text:
+            raise ValueError("that draft is empty")
+        return self._store(Draft(id=uuid.uuid4().hex[:12], item_id=item.id, chat_id=item.chat_id,
+                                 chat_name=item.chat_name, format="text", text=text, voice_available=False))
+
+    async def prepare_command(self, *, pcm: bytes, chats: list[tuple[int, str]]) -> dict:
+        """'Send a message to Mom: ...' -> a draft for a new message, or an error to show."""
+        from voicelens.commands import parse_command, resolve_contact
+
+        said = (await self._stt(pcm)).strip()
+        cmd = parse_command(said)
+        if cmd is None:
+            return {"error": f'Heard "{said or "nothing"}". Say: send a message to <name>: <text>'}
+        matches = resolve_contact(cmd.contact, chats)
+        if not matches:
+            return {"error": f'No chat called "{cmd.contact}"'}
+        if len(matches) > 1:
+            names = ", ".join(n for _, n in matches[:3])
+            return {"error": f'"{cmd.contact}" matches {names}. Say the full name'}
+        chat_id, chat_name = matches[0]
+        return {"draft": self._store(Draft(id=uuid.uuid4().hex[:12], item_id=None, chat_id=chat_id,
+                                           chat_name=chat_name, format=cmd.kind, text=cmd.text, pcm=pcm))}
 
     async def prepare(self, *, item_id: int, pcm: bytes) -> Draft:
         item = self._target(item_id)
