@@ -19,7 +19,7 @@ from voicelens.reply import DraftNotFound, NotAllowed, ReplyService, any_audio_t
 
 
 class UiState(BaseModel):
-    screen: Literal["inbox", "message", "quick", "recording", "thinking", "confirm", "sending", "sent", "error"] | None = None
+    screen: Literal["inbox", "message", "quick", "digest", "recording", "thinking", "confirm", "sending", "sent", "error"] | None = None
     selected_id: int | None = None
     page: int = 0
     reply_format: Literal["voice", "text"] | None = None  # while a reply is previewed
