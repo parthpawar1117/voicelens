@@ -41,8 +41,8 @@ describe('starting and stopping a recording', () => {
     expect(reduce(rec, 'double_tap', items)).toMatchObject({ screen: 'message', selectedId: 10 })
   })
 
-  it('cannot reply from the inbox list', () => {
-    expect(reduce({ screen: 'inbox', selectedId: 10, page: 0 }, 'long_press', items).screen).toBe('inbox')
+  it('hold on the inbox list starts a voice command, not a reply', () => {
+    expect(reduce({ screen: 'inbox', selectedId: 10, page: 0 }, 'long_press', items)).toMatchObject({ screen: 'recording', command: true })
   })
 })
 

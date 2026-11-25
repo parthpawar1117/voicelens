@@ -12,7 +12,9 @@
 
 import type { QuickReply } from './api'
 import type { Gesture } from './gestures'
-import { inboxScreen, messagePages, messageScreen, wrap, LINE_CHARS, type Item } from './screens'
+import { DIGEST_ID, inboxScreen, messagePages, messageScreen, wrap, LINE_CHARS, type Item } from './screens'
+
+export { DIGEST_ID }
 
 export type ReplyFormat = 'voice' | 'text'
 
@@ -23,14 +25,19 @@ export interface ReplyDraft {
   chatName: string
   voiceAvailable?: boolean // false for a quick reply with no recording
   quick?: boolean // made from a saved quick reply
+  command?: boolean // a new message from a voice command, not a reply
 }
 
 export interface Nav {
-  screen: 'inbox' | 'message' | 'quick' | 'recording' | 'thinking' | 'confirm' | 'sending' | 'sent' | 'error' | 'exit'
+  screen: 'inbox' | 'message' | 'quick' | 'digest' | 'recording' | 'thinking' | 'confirm' | 'sending' | 'sent' | 'error' | 'exit'
   selectedId: number | null
   page: number
-  quickIndex?: number // row in the quick list (0 = "Speak a reply")
+  quickIndex?: number // row in the reply card: AI drafts, then "Record voice note", then quick replies
   quickId?: string // set while a quick-reply draft is being prepared
+  draftText?: string // set while an AI draft is being prepared for approval
+  popup?: boolean // reply card opened by a new message arriving
+  command?: boolean // recording / preparing a voice command ("send a message to Mom: ...")
+  digest?: string[] // digest lines, once loaded
   reply?: ReplyDraft & { countdown: number }
   error?: string
 }
@@ -41,6 +48,8 @@ export type AppEvent =
   | { type: 'sent' }
   | { type: 'done' }
   | { type: 'error'; message: string }
+  | { type: 'incoming'; id: number } // a new message arrived
+  | { type: 'digest'; lines: string[] }
 
 export const COUNTDOWN_S = 5
 const QUICK_ROWS = 6 // rows visible at once (header + rows + footer <= 10 lines)
@@ -49,13 +58,24 @@ export function initialNav(items: Item[]): Nav {
   return { screen: 'inbox', selectedId: items[0]?.id ?? null, page: 0 }
 }
 
-const backToMessage = (s: Nav): Nav => ({ screen: 'message', selectedId: s.selectedId, page: 0 })
+// Back from a reply flow: to the message, or to the inbox for a command or pop-up.
+const backToMessage = (s: Nav): Nav =>
+  s.command || s.reply?.command || s.popup
+    ? { screen: 'inbox', selectedId: s.selectedId, page: 0 }
+    : { screen: 'message', selectedId: s.selectedId, page: 0 }
 
 function moveSelection(s: Nav, items: Item[], step: number): Nav {
-  if (items.length === 0) return { ...s, selectedId: null }
-  const at = items.findIndex(i => i.id === s.selectedId)
-  const next = Math.min(Math.max(0, (at < 0 ? 0 : at) + step), items.length - 1)
-  return { ...s, selectedId: items[next].id }
+  const ids = [DIGEST_ID, ...items.map(i => i.id)] // the digest row sits above the newest message
+  const at = ids.indexOf(s.selectedId ?? ids[1] ?? DIGEST_ID)
+  const next = Math.min(Math.max(0, (at < 0 ? 1 : at) + step), ids.length - 1)
+  return { ...s, selectedId: ids[next] }
+}
+
+type Row = { kind: 'ai'; text: string } | { kind: 'record' } | { kind: 'quick'; reply: QuickReply }
+
+export function cardRows(item: Item | undefined, quick: QuickReply[]): Row[] {
+  return [...(item?.drafts ?? []).map(text => ({ kind: 'ai' as const, text })), { kind: 'record' as const },
+    ...quick.map(reply => ({ kind: 'quick' as const, reply }))]
 }
 
 function onEvent(s: Nav, e: AppEvent): Nav {
@@ -72,7 +92,12 @@ function onEvent(s: Nav, e: AppEvent): Nav {
     case 'done':
       return s.screen === 'sent' ? { screen: 'inbox', selectedId: s.selectedId, page: 0 } : s
     case 'error':
-      return { screen: 'error', selectedId: s.selectedId, page: 0, error: e.message }
+      return { screen: 'error', selectedId: s.selectedId, page: 0, error: e.message, command: s.command || s.reply?.command }
+    case 'incoming':
+      // Pop up only from the inbox: never interrupt reading or replying.
+      return s.screen === 'inbox' ? { screen: 'quick', selectedId: e.id, page: 0, quickIndex: 0, popup: true } : s
+    case 'digest':
+      return s.screen === 'digest' ? { ...s, digest: e.lines } : s
   }
 }
 
@@ -85,7 +110,10 @@ export function reduce(s: Nav, input: Gesture | AppEvent, items: Item[], quick: 
       switch (g) {
         case 'swipe_down': return moveSelection(s, items, +1)
         case 'swipe_up': return moveSelection(s, items, -1)
-        case 'tap': return s.selectedId === null ? s : { screen: 'message', selectedId: s.selectedId, page: 0 }
+        case 'tap':
+          if (s.selectedId === DIGEST_ID) return { screen: 'digest', selectedId: DIGEST_ID, page: 0 }
+          return s.selectedId === null ? s : { screen: 'message', selectedId: s.selectedId, page: 0 }
+        case 'long_press': return { screen: 'recording', selectedId: s.selectedId, page: 0, command: true }
         // Never exit from here: one misplaced double tap closed the whole app.
         case 'double_tap': return { ...s, selectedId: items[0]?.id ?? null }
         default: return s
@@ -106,21 +134,26 @@ export function reduce(s: Nav, input: Gesture | AppEvent, items: Item[], quick: 
     }
 
     case 'quick': {
-      const at = s.quickIndex ?? 0
-      const last = quick.length // row 0 is "Speak a reply"
+      const rows = cardRows(items.find(i => i.id === s.selectedId), quick)
+      const at = Math.min(s.quickIndex ?? 0, rows.length - 1)
+      const base = { selectedId: s.selectedId, page: 0, popup: s.popup }
       switch (g) {
-        case 'swipe_down': return { ...s, quickIndex: Math.min(at + 1, last) }
+        case 'swipe_down': return { ...s, quickIndex: Math.min(at + 1, rows.length - 1) }
         case 'swipe_up': return { ...s, quickIndex: Math.max(at - 1, 0) }
         case 'double_tap': return backToMessage(s)
-        case 'long_press': return { screen: 'recording', selectedId: s.selectedId, page: 0 }
+        case 'long_press': return { screen: 'recording', ...base }
         case 'tap': {
-          if (at === 0) return { screen: 'recording', selectedId: s.selectedId, page: 0 }
-          const q = quick[at - 1]
-          return q ? { screen: 'thinking', selectedId: s.selectedId, page: 0, quickId: q.id } : s
+          const row = rows[at]
+          if (row.kind === 'ai') return { screen: 'thinking', ...base, draftText: row.text }
+          if (row.kind === 'quick') return { screen: 'thinking', ...base, quickId: row.reply.id }
+          return { screen: 'recording', ...base }
         }
         default: return s
       }
     }
+
+    case 'digest':
+      return g === 'double_tap' ? { screen: 'inbox', selectedId: DIGEST_ID, page: 0 } : s
 
     case 'recording':
       if (g === 'long_press_release' || g === 'tap') return { ...s, screen: 'thinking' }
@@ -154,15 +187,21 @@ export function reduce(s: Nav, input: Gesture | AppEvent, items: Item[], quick: 
 const formatName = (f: ReplyFormat) => (f === 'text' ? 'text' : 'voice')
 const clip = (t: string, n: number) => (t.length <= n ? t : t.slice(0, n - 3) + '...')
 
-function quickScreen(s: Nav, to: string, quick: QuickReply[]): string {
+function quickScreen(s: Nav, item: Item | undefined, to: string, quick: QuickReply[]): string {
   // Label then a short tag, no space-padding: the G2 font is proportional,
-  // so padded columns drift. Only recorded replies get a tag.
-  const rows = ['(o) Speak a reply', ...quick.map(q =>
-    q.has_voice ? `${clip(q.label, LINE_CHARS - 2 - 2 - 8)} (voice)` : clip(q.label, LINE_CHARS - 2 - 2))]
+  // so padded columns drift.
+  const rows = cardRows(item, quick).map(r =>
+    r.kind === 'ai' ? `${clip(r.text, LINE_CHARS - 4 - 5)} (AI)`
+      : r.kind === 'record' ? '(o) Record voice note'
+        : r.reply.has_voice ? `${clip(r.reply.label, LINE_CHARS - 4 - 8)} (voice)` : clip(r.reply.label, LINE_CHARS - 4))
+  const head = s.popup && item
+    ? [clip(`New from ${to}`, LINE_CHARS), ...wrap(item.text, LINE_CHARS).slice(0, 2)]
+    : [clip(`Reply to ${to}`, LINE_CHARS)]
+  const visible = Math.min(QUICK_ROWS, 10 - head.length - 1)
   const at = Math.min(s.quickIndex ?? 0, rows.length - 1)
-  const start = Math.min(Math.max(0, at - (QUICK_ROWS - 1)), Math.max(0, rows.length - QUICK_ROWS))
-  const shown = rows.slice(start, start + QUICK_ROWS).map((r, i) => `${start + i === at ? '>' : ' '} ${r}`)
-  return [clip(`Quick reply to ${to}`, LINE_CHARS), ...shown, 'swipe: choose | tap: send | dbl-tap: back'].join('\n')
+  const start = Math.min(Math.max(0, at - (visible - 1)), Math.max(0, rows.length - visible))
+  const shown = rows.slice(start, start + visible).map((r, i) => `${start + i === at ? '>' : ' '} ${r}`)
+  return [...head, ...shown, 'swipe: choose | tap: send | dbl-tap: back'].join('\n')
 }
 
 export function render(s: Nav, items: Item[], quick: QuickReply[] = []): string {
@@ -173,8 +212,15 @@ export function render(s: Nav, items: Item[], quick: QuickReply[] = []): string 
       if (item) return messageScreen(item, s.page)
       break
     case 'quick':
-      return quickScreen(s, to, quick)
+      return quickScreen(s, item, to, quick)
+    case 'digest':
+      return ['Digest of your chats', '',
+        ...(s.digest === undefined ? ['Making your digest...'] : s.digest.length ? s.digest.map(l => clip(`- ${l}`, LINE_CHARS)) : ['Nothing new in your picked chats.']),
+        '', 'dbl-tap: back'].slice(0, 10).join('\n')
     case 'recording':
+      if (s.command) {
+        return ['Voice command', '', '(o) Recording... say:', '"Send a message to <name>: <text>"', 'or "Voice note to <name>: ..."', '', 'release (or tap) to finish', 'dbl-tap: cancel'].join('\n')
+      }
       return [`Reply to ${to}`, '', '(o) Recording... speak now', '', 'release (or tap) to finish', 'dbl-tap: cancel'].join('\n')
     case 'thinking':
       return s.quickId
@@ -188,7 +234,7 @@ export function render(s: Nav, items: Item[], quick: QuickReply[] = []): string 
       const what = r.format === 'text' ? 'text' : 'voice note'
       const voiceHint = r.voiceAvailable === false ? '(not recorded)' : '(swipe down)'
       const status = s.screen === 'sending' ? `Sending ${what}...` : `Sending ${what} in ${r.countdown}... | dbl-tap: cancel`
-      return [`Reply to ${to}`, r.quick ? 'Quick reply:' : 'You said:', ...said,
+      return [r.command ? `New message to ${to}` : `Reply to ${to}`, r.quick ? 'Quick reply:' : 'You said:', ...said,
         `${mark('text')} ^ TEXT          (swipe up)`, `${mark('voice')} v VOICE NOTE    ${voiceHint}`, status].join('\n')
     }
     case 'sent':

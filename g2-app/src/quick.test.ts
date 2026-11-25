@@ -19,11 +19,11 @@ const fits = (screen: string) => {
 }
 
 describe('opening quick replies', () => {
-  it('tap on a message opens the quick reply list with "Speak a reply" first', () => {
+  it('tap on a message opens the reply card with "Record voice note" first (no AI drafts here)', () => {
     const s = reduce(onMessage, 'tap', items, quick)
     expect(s).toMatchObject({ screen: 'quick', quickIndex: 0 })
     const screen = render(s, items, quick)
-    expect(screen).toContain('> (o) Speak a reply')
+    expect(screen).toContain('> (o) Record voice note')
     expect(screen).toContain('On my way')
     expect(screen).toContain('On my way (voice)')
     expect(screen).not.toMatch(/\S {2,}\S/) // no space-padding: the G2 font is proportional, columns never line up
@@ -52,7 +52,7 @@ describe('choosing', () => {
     expect(s.quickIndex).toBe(0)
   })
 
-  it('tap on "Speak a reply" starts recording (works without long press)', () => {
+  it('tap on "Record voice note" starts recording (works without long press)', () => {
     expect(reduce(open, 'tap', items, quick).screen).toBe('recording')
   })
 

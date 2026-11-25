@@ -16,7 +16,11 @@ export interface Item {
   duration: number | null
   received_at: string
   source: string | null
+  drafts?: string[] // AI-drafted replies from the server
 }
+
+// The inbox's digest row (above the newest message) is selected with this id.
+export const DIGEST_ID = -1
 
 export function wrap(text: string, width: number): string[] {
   const out: string[] = []
@@ -49,9 +53,11 @@ export function inboxScreen(items: Item[], selectedId: number | null): string {
   if (items.length === 0) {
     return ['VoiceLens', '', 'No messages yet.', 'Texts and voice notes from your', 'picked chats will appear here.'].join('\n')
   }
-  const selected = Math.max(0, items.findIndex(i => i.id === selectedId))
+  const onDigest = selectedId === DIGEST_ID
+  const selected = onDigest ? -1 : Math.max(0, items.findIndex(i => i.id === selectedId))
   const start = Math.min(Math.max(0, selected - (ROWS_PER_SCREEN - 1)), Math.max(0, items.length - ROWS_PER_SCREEN))
-  const lines = [`VoiceLens | ${items.length} message${items.length === 1 ? '' : 's'}`]
+  const count = `${items.length} message${items.length === 1 ? '' : 's'}`
+  const lines = [onDigest ? '> [ Digest of your chats ]' : `  [ Digest ] | VoiceLens | ${count}`]
   for (const [offset, item] of items.slice(start, start + ROWS_PER_SCREEN).entries()) {
     const mark = start + offset === selected ? '>' : ' '
     // Separators, not space-padded columns: the G2 font is proportional, so
@@ -59,7 +65,7 @@ export function inboxScreen(items: Item[], selectedId: number | null): string {
     lines.push(`${mark} ${clip(item.chat_name, 24)} | ${kindLabel(item)} | ${item.received_at}`)
     lines.push(`    ${clip(item.text.replace(/\s+/g, ' '), LINE_CHARS - 4)}`)
   }
-  lines.push('swipe: move | tap: open')
+  lines.push('swipe: move | tap: open | hold: command')
   return lines.join('\n')
 }
 

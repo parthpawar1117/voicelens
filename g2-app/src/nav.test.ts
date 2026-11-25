@@ -18,9 +18,10 @@ describe('inbox navigation', () => {
     expect(s.selectedId).toBe(1)
   })
 
-  it('swipe up moves back and stops at the top', () => {
+  it('swipe up from the newest message reaches the digest row, and stops there', () => {
     const s = reduce(initialNav(items), 'swipe_up', items)
-    expect(s.selectedId).toBe(3)
+    expect(s.selectedId).toBe(-1)
+    expect(reduce(s, 'swipe_up', items).selectedId).toBe(-1)
   })
 
   it('tap opens the selected message on page 1', () => {
