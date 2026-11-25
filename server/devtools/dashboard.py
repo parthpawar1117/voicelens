@@ -375,6 +375,9 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
 .qrrow{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #262a26}
 .qrrow:last-child{border-bottom:0}.qrrow .k{font-size:11px;color:#3cfa44;margin-left:6px}
 .qrrow audio{height:28px;max-width:220px}
+.chrow{display:flex;gap:10px;align-items:center;padding:7px 2px;border-bottom:1px solid #262a26;cursor:pointer}
+.chrow:last-child{border-bottom:0}.chrow input{width:18px;height:18px;accent-color:#3cfa44}
+.chrow .k{font-size:11px;color:#9a9a9a;margin-left:auto}
 .mini{background:none;border:1px solid #3a3f3a;color:#9a9a9a;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
 .mini:hover{border-color:#3cfa44;color:#3cfa44}
 .hold:hover{border-color:#3cfa44}.hold.on{background:#ff5a4f;border-color:#ff5a4f;color:#fff}.hold.on small{color:#fff}
@@ -420,6 +423,11 @@ th{color:#9a9a9a;font-weight:500;font-size:12px}td.s{width:28px}td.ms{width:80px
   <div class="glmeta"><span>Screen blank or stuck?</span><button id="restartbtn" class="mini">↻ Restart glasses app</button></div>
  </div>
  <div class="glcard"><b style="font-size:13px;color:#9a9a9a">FULL INBOX · newest first · <span id="incount">0</span></b><div id="inlist"></div></div>
+</div>
+<h2>💬 Chats you pick <span class="pill" id="chbadge">only these reach your glasses</span></h2>
+<div class="glcard" style="margin-top:14px">
+ <div class="frsend" style="margin-bottom:10px"><input id="chsearch" type="text" placeholder="Search your chats, groups and channels" autocomplete="off"><span class="file" id="chcount"></span></div>
+ <div id="chlist" style="max-height:320px;overflow:auto"></div>
 </div>
 <h2>🤫 Quick replies <span class="pill" id="qrbadge">silent replies, in your voice</span></h2>
 <div class="glcard" style="margin-top:14px">
@@ -620,6 +628,27 @@ function qrStop(){ if(qrRec&&qrRec.state==='recording') qrRec.stop() }
 qb.addEventListener('pointerdown',e=>{ e.preventDefault(); qb.setPointerCapture(e.pointerId); qrStart() });
 qb.addEventListener('pointerup',qrStop); qb.addEventListener('pointercancel',qrStop);
 qrTick(); setInterval(qrTick,3000);
+// ---- chat picker: only picked chats reach the glasses ----
+let chats=[];
+async function chLoad(){
+ let r; try{ r=await (await fetch('/api/chats')).json() }catch(e){ return }
+ if(!r.ok){ $('chlist').innerHTML='<p class="file">Start the VoiceLens server to pick chats.</p>'; return }
+ chats=r.chats; chRender();
+}
+function chRender(){
+ const q=$('chsearch').value.trim().toLowerCase();
+ const picked=chats.filter(c=>c.picked).length;
+ $('chcount').textContent=`${picked} picked of ${chats.length}`;
+ const rows=chats.filter(c=>!q||c.name.toLowerCase().includes(q)).sort((a,b)=>(b.picked-a.picked)).slice(0,200);
+ $('chlist').innerHTML=rows.map(c=>`<label class="chrow"><input type="checkbox" data-id="${c.id}" ${c.picked?'checked':''}><span>${esc(c.name)}</span><span class="k">${c.kind}</span></label>`).join('')||'<p class="file">No chats match.</p>';
+ $('chlist').querySelectorAll('input[type=checkbox]').forEach(b=>b.addEventListener('change',async()=>{
+  const id=+b.dataset.id, picked=b.checked;
+  await fetch('/api/chats/pick',{method:'POST',body:JSON.stringify({chat_id:id,picked})});
+  const c=chats.find(x=>x.id===id); if(c) c.picked=picked; chRender();
+ }));
+}
+$('chsearch').addEventListener('input',chRender);
+chLoad(); setInterval(chLoad,15000);
 document.addEventListener('keydown',e=>{
  if(e.target.closest&&e.target.closest('input,textarea')) return;
  if(e.code==='Space'){ e.preventDefault(); if(!e.repeat) holdStart(); return }
@@ -686,6 +715,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(503, "simulator not running")
         elif self.path == "/api/glasses":
             self._send(json.dumps(glasses_status()).encode(), "application/json")
+        elif self.path == "/api/chats":
+            status, body = server_call("GET", "/chats")
+            self._send(json.dumps({"ok": status == 200, **body}).encode(), "application/json")
         elif self.path == "/api/quick":
             status, body = server_call("GET", "/quick-replies")
             self._send(json.dumps({"ok": status == 200, **body}).encode(), "application/json")
@@ -720,6 +752,9 @@ class Handler(BaseHTTPRequestHandler):
             payload = {"label": label or None, "audio_b64": base64.b64encode(raw).decode() if raw else None}
             status, body = server_call("POST", "/quick-replies", payload)
             return self._send(json.dumps({"ok": status == 200, "error": body.get("detail"), **body}).encode(), "application/json")
+        if self.path == "/api/chats/pick":
+            status, _ = server_call("POST", "/chats/pick", json.loads(raw or b"{}"))
+            return self._send(json.dumps({"ok": status == 200}).encode(), "application/json")
         if self.path == "/api/quick/delete":
             qid = json.loads(raw or b"{}").get("id", "")
             status, body = server_call("DELETE", f"/quick-replies/{qid}")
