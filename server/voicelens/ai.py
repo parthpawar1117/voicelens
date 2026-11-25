@@ -22,7 +22,10 @@ import httpx
 from voicelens.quick_replies import to_g2_text
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+# Measured on Nov 26, 2026: 548 ms for two drafts at low reasoning effort.
+# (llama-3.3-70b-versatile was retired by Groq.)
+DEFAULT_MODEL = "openai/gpt-oss-120b"
+_REASONING_PREFIXES = ("openai/gpt-oss", "qwen/")  # accept reasoning_effort
 
 _DRAFT_SYSTEM = (
     "You draft replies for someone reading chat messages on small smart-glasses. "
@@ -46,18 +49,24 @@ class AIWriter:
         self.model = model
         self._client = client or httpx.AsyncClient(timeout=15)
 
+    def _body(self, system: str, prompt: str) -> dict:
+        body = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.4,
+            "max_tokens": 300,
+        }
+        if self.model.startswith(_REASONING_PREFIXES):
+            body["reasoning_effort"] = "low"  # fastest, and plenty for short replies
+        return body
+
     async def _ask(self, system: str, prompt: str, key: str) -> list[str]:
         try:
             response = await self._client.post(
                 GROQ_URL,
                 headers={"Authorization": f"Bearer {self._key}"},
-                json={
-                    "model": self.model,
-                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.4,
-                    "max_tokens": 300,
-                },
+                json=self._body(system, prompt),
             )
             response.raise_for_status()
             choice = response.json()["choices"][0]
