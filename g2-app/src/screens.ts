@@ -4,9 +4,9 @@
 // the simulator fit ~60 chars x 11 lines; we use 48 x 10.
 
 export const LINE_CHARS = 48
-export const SCREEN_LINES = 10
+export const SCREEN_LINES = 9 // 10 lines sat at the edge: the simulator started scrolling and swallowed gestures
 const BODY_LINES = SCREEN_LINES - 2 // header + footer
-const ROWS_PER_SCREEN = 4 // each inbox row = name line + snippet line
+const ROWS_PER_SCREEN = 3 // each inbox row = name line + snippet line
 
 export interface Item {
   id: number

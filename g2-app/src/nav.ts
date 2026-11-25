@@ -12,7 +12,7 @@
 
 import type { QuickReply } from './api'
 import type { Gesture } from './gestures'
-import { DIGEST_ID, inboxScreen, messagePages, messageScreen, wrap, LINE_CHARS, type Item } from './screens'
+import { DIGEST_ID, inboxScreen, messagePages, messageScreen, wrap, LINE_CHARS, SCREEN_LINES, type Item } from './screens'
 
 export { DIGEST_ID }
 
@@ -52,7 +52,7 @@ export type AppEvent =
   | { type: 'digest'; lines: string[] }
 
 export const COUNTDOWN_S = 5
-const QUICK_ROWS = 6 // rows visible at once (header + rows + footer <= 10 lines)
+const QUICK_ROWS = 6 // rows visible at once (header + rows + footer <= SCREEN_LINES)
 
 export function initialNav(items: Item[]): Nav {
   return { screen: 'inbox', selectedId: items[0]?.id ?? null, page: 0 }
@@ -197,7 +197,7 @@ function quickScreen(s: Nav, item: Item | undefined, to: string, quick: QuickRep
   const head = s.popup && item
     ? [clip(`New from ${to}`, LINE_CHARS), ...wrap(item.text, LINE_CHARS).slice(0, 2)]
     : [clip(`Reply to ${to}`, LINE_CHARS)]
-  const visible = Math.min(QUICK_ROWS, 10 - head.length - 1)
+  const visible = Math.min(QUICK_ROWS, SCREEN_LINES - head.length - 1)
   const at = Math.min(s.quickIndex ?? 0, rows.length - 1)
   const start = Math.min(Math.max(0, at - (visible - 1)), Math.max(0, rows.length - visible))
   const shown = rows.slice(start, start + visible).map((r, i) => `${start + i === at ? '>' : ' '} ${r}`)
@@ -216,7 +216,7 @@ export function render(s: Nav, items: Item[], quick: QuickReply[] = []): string 
     case 'digest':
       return ['Digest of your chats', '',
         ...(s.digest === undefined ? ['Making your digest...'] : s.digest.length ? s.digest.map(l => clip(`- ${l}`, LINE_CHARS)) : ['Nothing new in your picked chats.']),
-        '', 'dbl-tap: back'].slice(0, 10).join('\n')
+        '', 'dbl-tap: back'].slice(0, SCREEN_LINES).join('\n')
     case 'recording':
       if (s.command) {
         return ['Voice command', '', '(o) Recording... say:', '"Send a message to <name>: <text>"', 'or "Voice note to <name>: ..."', '', 'release (or tap) to finish', 'dbl-tap: cancel'].join('\n')
