@@ -18,7 +18,9 @@ import { mountUi, setStatus, setTranscript } from './ui'
 const POLL_MS = 700 // new messages show within about a second
 
 mountUi()
+console.info('[VoiceLens] waiting for Even Hub bridge')
 const bridge = await waitForEvenAppBridge()
+console.info('[VoiceLens] Even Hub bridge ready')
 
 const screen = new TextContainerProperty({
   xPosition: 0,
@@ -36,6 +38,7 @@ const screen = new TextContainerProperty({
 const created = await bridge.createStartUpPageContainer(
   new CreateStartUpPageContainer({ containerTotalNum: 1, textObject: [screen] }),
 )
+console.info(`[VoiceLens] startup page result: ${created}`)
 if (created !== 0) setStatus('error', `createStartUpPageContainer failed: ${created}`)
 
 let items: Item[] = []
@@ -152,6 +155,7 @@ const unsubscribe = bridge.onEvenHubEvent(event => {
   }
   const gesture = classifyGesture(event)
   if (gesture === null) return
+  console.info(`[VoiceLens] glasses gesture: ${gesture}`)
   if (gesture === 'exit') { void bridge.audioControl(false); unsubscribe(); return }
   dispatch(gesture)
 })

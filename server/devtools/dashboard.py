@@ -13,6 +13,7 @@ itself every 2 seconds. It also shows the latest real voice-note run
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -79,11 +80,11 @@ def restart_simulator() -> bool:
     else:
         subprocess.run(["pkill", "-f", "evenhub-simulator"], capture_output=True)
     time.sleep(0.8)
-    # Start it as its own process (own group, no console window) so it keeps
-    # running when the dashboard restarts; it used to close along with it.
-    flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if sys.platform == "win32" else 0
-    subprocess.Popen(simulator_command(), cwd=APP, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=sys.platform != "win32")
+    # Keep the simulator visible and leave its output attached so startup and
+    # bridge errors can be diagnosed from its console.
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
+    subprocess.Popen(simulator_command(), cwd=APP, creationflags=flags,
+                     start_new_session=sys.platform != "win32")
     for _ in range(30):  # wait until its automation API answers
         if _http(f"{SIM}/api/ping", timeout=1) is not None:
             return True
@@ -231,9 +232,18 @@ def parse_vitest(data: dict) -> list[dict]:
 def run_pytest() -> list[dict]:
     TMP.mkdir(exist_ok=True)
     report = TMP / "pytest.xml"
+    # Keep pytest's temporary files inside the project. This also works in
+    # restricted environments where the operating-system temp directory is
+    # not writable by the dashboard process.
+    pytest_tmp = TMP / "pytest-temp"
+    pytest_tmp.mkdir(exist_ok=True)
+    env = os.environ.copy()
+    env["TMP"] = str(pytest_tmp)
+    env["TEMP"] = str(pytest_tmp)
+    env["TMPDIR"] = str(pytest_tmp)
     subprocess.run(
         [sys.executable, "-m", "pytest", "-q", f"--junitxml={report}"],
-        cwd=SERVER, capture_output=True, text=True,
+        cwd=SERVER, capture_output=True, text=True, env=env,
     )
     return parse_junit(report.read_text(encoding="utf-8")) if report.exists() else []
 
